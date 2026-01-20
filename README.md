@@ -5,7 +5,6 @@ Quid is a feedback marketplace built on the Stellar blockchain that connects fou
 ## The Problem
 - Building on Stellar is fast, but getting real feedback is slow.
 - Getting early, high-quality feedback is incredibly difficult.
-- Founders waste time building features that nobody actually wants.
 
 ## The Solution
 - Quid is a bridge between the builder and the person using the app.
