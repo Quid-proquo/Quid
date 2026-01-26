@@ -10,7 +10,9 @@ export default function QuestDetailPage({ params }: { params: Promise<{ questId:
 
   return (
     <CreatorQuestDetail
-      // quest={quest}
+      quest={quest}
+      questId={questId}
+      isActive={quest?.status === 'active'}
       submissions={submissions}
     />
   );
