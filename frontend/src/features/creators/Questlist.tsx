@@ -12,6 +12,7 @@ const tabs: { label: string; value: Tab }[] = [
 
 const availableQuests = [
   {
+    id: "1",
     title: "Download and test the latest Ruze.stellar 2.0",
     tag: "Awaiting Review",
     category: "Product",
@@ -20,6 +21,7 @@ const availableQuests = [
     score: 72,
   },
   {
+    id: "2",
     title: "Review and implement feedback for Ruze.stellar 2.0",
     category: "Development",
     reward: "10 XLM (640)",
@@ -27,6 +29,7 @@ const availableQuests = [
     score: 23,
   },
   {
+    id: "3",
     title: "Finalize marketing strategy for Ruze.stellar 2.0",
     category: "Marketing",
     reward: "10 XLM (640)",
@@ -34,6 +37,7 @@ const availableQuests = [
     score: 11,
   },
   {
+    id: "4",
     title: "Prepare launch event for Ruze.stellar 2.0",
     category: "Events",
     reward: "10 XLM (640)",
@@ -52,6 +56,7 @@ function CompletedState() {
 
 export default function Questlist() {
   const [activeTab, setActiveTab] = useState<Tab>("available");
+
 
   return (
     <div>
@@ -75,7 +80,10 @@ export default function Questlist() {
       {/* Content */}
       <div className="pt-6 flex flex-col gap-6">
         {activeTab === "available" ? (
-          <div className="flex flex-col gap-6">
+          <div
+            className="flex flex-col gap-6 "
+           
+          >
             {availableQuests.map((quest, idx) => (
               <QuestItem key={idx} {...quest} />
             ))}

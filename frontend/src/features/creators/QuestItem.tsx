@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { HiBriefcase } from "react-icons/hi2";
 
 export default function QuestItem({
@@ -8,6 +9,7 @@ export default function QuestItem({
   reward,
   deadline,
   score,
+  id
 }: {
   title: string;
   tag?: string;
@@ -15,9 +17,13 @@ export default function QuestItem({
   reward: string;
   deadline: string;
   score: number;
+  id: string
 }) {
   return (
-    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-0 border-b border-b-[#241B4A] pb-4">
+    <Link
+      href={`/creator/quests/${id}`}
+      className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-0 border-b border-b-[#241B4A] pb-4 cursor-pointer hover:bg-neutral-800"
+    >
       {/* Left Section */}
       <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-4">
         <Image src="/namelogo.png" alt="Logo" width={72} height={72} />
@@ -58,6 +64,6 @@ export default function QuestItem({
         <HiBriefcase className="w-[19px] h-[19px] text-[#9011FF]" />
         <span>{score}</span>
       </div>
-    </div>
+    </Link>
   );
 }
