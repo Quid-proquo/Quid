@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
+import { WalletProvider } from "@/context/WalletProvider";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -27,7 +28,9 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} ${geistMono.variable} font-sans antialiased`}
       >
-        {children}
+        <WalletProvider>
+          {children}
+        </WalletProvider>
       </body>
     </html>
   );
