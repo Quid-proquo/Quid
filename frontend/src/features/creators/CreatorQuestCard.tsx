@@ -16,23 +16,23 @@ interface CreatorQuestCardProps {
 const categoryConfig = {
   Product: {
     icon: '📦',
-    bgColor: 'bg-purple-500/10',
-    textColor: 'text-purple-400',
+    bgColor: 'bg-[#0C0A14]',
+    textColor: 'text-white',
   },
   Development: {
     icon: '💻',
-    bgColor: 'bg-blue-500/10',
-    textColor: 'text-blue-400',
+    bgColor: 'bg-[#0C0A14]',
+    textColor: 'text-white',
   },
   Marketing: {
     icon: '📢',
-    bgColor: 'bg-pink-500/10',
-    textColor: 'text-pink-400',
+    bgColor: 'bg-[#0C0A14]',
+    textColor: 'text-white',
   },
   Events: {
     icon: '🎉',
-    bgColor: 'bg-green-500/10',
-    textColor: 'text-green-400',
+    bgColor: 'bg-[#0C0A14]',
+    textColor: 'text-white',
   },
 };
 
@@ -46,7 +46,7 @@ export const CreatorQuestCard: React.FC<CreatorQuestCardProps> = ({
   const config = categoryConfig[category];
 
   return (
-    <div className="bg-[#1a1a2e] rounded-lg p-4 sm:p-6 border border-gray-800/50 hover:border-purple-500/30 transition-all duration-200 cursor-pointer group">
+    <div className="p-4 sm:p-6 transition-all duration-200 cursor-pointer group">
       <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
         <div className="flex items-start space-x-3 sm:space-x-4 flex-1 w-full">
           <div className="flex-shrink-0">
@@ -64,11 +64,11 @@ export const CreatorQuestCard: React.FC<CreatorQuestCardProps> = ({
             </h3>
 
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm">
-              <div className={`flex items-center space-x-1 ${config.bgColor} ${config.textColor} px-2 sm:px-3 py-1 rounded-full`}>
+              <div className={`flex items-center space-x-1 ${config.bgColor} ${config.textColor} px-2 sm:px-3 py-1 `}>
                 <span className="text-sm">{config.icon}</span>
                 <span className="font-medium whitespace-nowrap">{category}</span>
               </div>
-              <div className="flex items-center space-x-1 bg-gray-800/50 text-gray-300 px-2 sm:px-3 py-1 rounded-full">
+              <div className="flex items-center space-x-1 text-ehite px-2 sm:px-3 py-1 ">
                 <span className="text-sm">💰</span>
                 <span className="font-medium whitespace-nowrap">{budget}</span>
               </div>

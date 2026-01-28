@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Users, Wallet, Plus } from 'lucide-react';
+import { FileText, Users, Wallet} from 'lucide-react';
 
 interface StatsOverviewProps {
   activeQuests: number;
@@ -42,7 +42,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
   ];
 
   return (
-    <div className="border-t border-b border-purple-500/30 py-6 mb-8">
+    <div className="border-t border-b border-[#241B4A] py-6 mb-8">
       <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
         <div className="flex flex-col sm:flex-row items-center gap-8 lg:gap-12 flex-1">
           {stats.map((stat, index) => {
@@ -72,7 +72,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
         {/* Create New Survey Button */}
         <button
           onClick={onCreateQuest}
-          className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-200 flex items-center justify-center space-x-2 group"
+          className="bg-[#9011FF] hover:from-purple-700 hover:to-purple-600 text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-200 flex items-center justify-center space-x-2 group"
         >
           <span className="text-base">Create a New Survey</span>
         </button>
