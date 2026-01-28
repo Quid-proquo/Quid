@@ -3,23 +3,41 @@
 Quid is a feedback marketplace built on the Stellar blockchain that connects founders who need honest dApp feedback with users who provide valuable insights for USDC rewards.
 
 ## The Problem
-- Building on Stellar is fast, but getting real feedback is slow.
-- Getting early, high-quality feedback is incredibly difficult.
+Building in Web3 is hard. Getting early, high-quality feedback is even harder.
+- **Founders** struggle to find real users to test their dApps.
+- **Users** have no incentive to provide detailed, constructive criticism.
+- **Feedback** is often lost in Discord channels or is spam from bots.
 
 ## The Solution
-- Quid is a bridge between the builder and the person using the app.
-- It turns feedback into a professional service.
-- It uses the Stellar ledger to prove a user is a real human, not a script.
+Quid creates a trustless **"Bounty Vault"** for feedback.
+1. **Founders** create a Mission and lock funds (USDC/XLM) in a smart contract.
+2. **Hunters** submit proof of work (screenshots/feedback) via IPFS.
+3. **Smart Contracts** handle the payout only when feedback is approved.
 
-## Core Features Of the MVP
+##  Core Features
 
+### 1. The Bounty Vault
+Funds are escrowed on-chain the moment a mission is created. Users can see the balance in the smart contract, guaranteeing that the money exists before they start working.
+
+### 2. Hybrid Storage (Proof-of-Feedback)
+We utilize a gas-efficient architecture. Large data (feedback text, screenshots, recordings) is pinned to IPFS, while only the cryptographic hash (CID) is stored on the Stellar ledger.
+
+### 3. Asset Gating (Anti-Spam)
+Founders can filter for quality by requiring hunters to hold specific assets.
+* *Example:* "Only users holding > 500 AQUA can join this mission."
+* *Example:* "Must hold the 'Early Adopter' NFT."
+
+### 4. Reputation Engine
+Quid tracks a user's history on-chain. Every approved submission increments a user's "Successful Missions" counter, building a verifiable resume of high-quality contributions.
+
+---
 The platform is split into two main experiences, depending on your role.
 
 ### 1. For Founders (Getting Feedback)
 
 As a Founder, you need to understand if your dApp is hitting the mark. Quid helps you do that efficiently.
 
--   **Create a Mission:** Easily create a new feedback campaign (a "Mission") by filling out a simple form:
+-   **Create a Mission:** Easily create a new feedback campaign (a "Mission") by filling out a simple form and more to come 🥂:
     -   **Title:** A clear name for your feedback request.
     -   **dApp URL:** The link to the project you want feedback on.
     -   **Reward per user:** How much USDC you'll pay each user for their feedback.
