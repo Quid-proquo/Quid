@@ -1,4 +1,6 @@
-# Quid
+
+<img width="161" height="87" alt="image" src="https://github.com/user-attachments/assets/70d1ce77-641c-445b-911d-971a8908593d" />
+
 
 Quid is a feedback marketplace built on the Stellar blockchain that connects founders who need honest dApp feedback with users who provide valuable insights for USDC rewards.
 
