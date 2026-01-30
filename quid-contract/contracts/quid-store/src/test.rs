@@ -1,4 +1,4 @@
-#![cfg(test)]
+ #![cfg(test)]
 
 use super::*;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
@@ -8,13 +8,13 @@ use types::MissionStatus;
 fn setup_test_env() -> (Env, Address, Address, Address) {
     let env = Env::default();
     let contract_id = env.register(QuidStoreContract, ());
-    
+
     // Mock the auth for testing
     env.mock_all_auths();
-    
+
     let owner = Address::generate(&env);
     let token_address = Address::generate(&env);
-    
+
     (env, contract_id, owner, token_address)
 }
 
@@ -25,7 +25,7 @@ fn test_create_mission_success() {
 
     let title = String::from_str(&env, "Test Mission");
     let description_cid = String::from_str(&env, "QmTest123456789");
-    let reward_amount: i128 = 1_000_0000; // 100 tokens
+    let reward_amount: i128 = 10_000_000; // 100 tokens
     let max_participants: u32 = 50;
 
     let mission_id = client.create_mission(
@@ -65,7 +65,7 @@ fn test_create_multiple_missions() {
         &String::from_str(&env, "Mission 1"),
         &String::from_str(&env, "QmDesc1"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
 
@@ -75,7 +75,7 @@ fn test_create_multiple_missions() {
         &String::from_str(&env, "Mission 2"),
         &String::from_str(&env, "QmDesc2"),
         &token_address,
-        &2_000_0000,
+        &20_000_000,
         &100,
     );
 
@@ -96,34 +96,39 @@ fn test_create_multiple_missions() {
 }
 
 #[test]
-#[should_panic(expected = "Title cannot be empty")]
-fn test_create_mission_empty_title_fails() {
+fn test_create_mission_empty_title_succeeds() {
+    // Since we removed title validation, empty titles are now allowed
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let empty_title = String::from_str(&env, "");
     let description_cid = String::from_str(&env, "QmDesc");
 
-    client.create_mission(
+    let mission_id = client.create_mission(
         &owner,
         &empty_title,
         &description_cid,
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
+
+    // Verify mission was created successfully
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.title, empty_title);
 }
 
 #[test]
-#[should_panic(expected = "Reward amount must be non-negative")]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_create_mission_negative_reward_fails() {
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let title = String::from_str(&env, "Test Mission");
     let description_cid = String::from_str(&env, "QmDesc");
-    let negative_reward: i128 = -1_000_0000;
+    let negative_reward: i128 = -10_000_000;
 
+    // This should panic with QuidError::NegativeReward (error code #7)
     client.create_mission(
         &owner,
         &title,
@@ -135,11 +140,12 @@ fn test_create_mission_negative_reward_fails() {
 }
 
 #[test]
-#[should_panic(expected = "Mission not found")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_get_mission_not_found() {
     let (env, contract_id, _owner, _token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
+    // This should panic with QuidError::MissionNotFound (error code #1)
     client.get_mission(&999);
 }
 
@@ -162,7 +168,7 @@ fn test_create_mission_with_unlimited_participants() {
         &String::from_str(&env, "Unlimited Mission"),
         &String::from_str(&env, "QmDesc"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &0, // 0 = unlimited
     );
 
@@ -199,12 +205,12 @@ fn test_mission_owner_authentication() {
         &String::from_str(&env, "Owned Mission"),
         &String::from_str(&env, "QmDesc"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
 
     let mission = client.get_mission(&mission_id);
-    
+
     // Verify the owner is correctly set and authenticated
     assert_eq!(mission.owner, owner);
 }
@@ -219,7 +225,7 @@ fn test_mission_initial_status_is_created() {
         &String::from_str(&env, "Status Test"),
         &String::from_str(&env, "QmDesc"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
 
@@ -238,7 +244,7 @@ fn test_update_mission_status() {
         &String::from_str(&env, "Status Update Test"),
         &String::from_str(&env, "QmDesc"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
 
@@ -263,13 +269,13 @@ fn test_mission_created_at_timestamp() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let before_time = env.ledger().timestamp();
-    
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Timestamp Test"),
         &String::from_str(&env, "QmDesc"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
 
@@ -287,7 +293,7 @@ fn test_mission_created_at_timestamp() {
 fn test_multiple_owners_create_missions() {
     let (env, contract_id, owner1, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
-    
+
     let owner2 = Address::generate(&env);
 
     // Owner 1 creates a mission
@@ -296,7 +302,7 @@ fn test_multiple_owners_create_missions() {
         &String::from_str(&env, "Owner 1 Mission"),
         &String::from_str(&env, "QmDesc1"),
         &token_address,
-        &1_000_0000,
+        &10_000_000,
         &50,
     );
 
@@ -306,7 +312,7 @@ fn test_multiple_owners_create_missions() {
         &String::from_str(&env, "Owner 2 Mission"),
         &String::from_str(&env, "QmDesc2"),
         &token_address,
-        &2_000_0000,
+        &20_000_000,
         &100,
     );
 

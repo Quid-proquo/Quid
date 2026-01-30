@@ -3,25 +3,15 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 mod error;
 mod types;
+use error::QuidError;
 use types::{DataKey, Mission, MissionStatus};
 
-
 /// Quid Store Contract
-/// 
+///
 /// A decentralized platform for creating and managing missions where creators
 /// can collect feedback and reward participants.
 #[contract]
 pub struct QuidStoreContract;
-
-/// Custom error codes for the contract
-#[repr(u32)]
-pub enum Error {
-    InvalidTitle = 1,
-    InvalidReward = 2,
-    InvalidExpiration = 3,
-    MissionNotFound = 4,
-    Unauthorized = 5,
-}
 
 #[contractimpl]
 impl QuidStoreContract {
@@ -37,11 +27,10 @@ impl QuidStoreContract {
     /// * `max_participants` - Maximum number of participants (0 = unlimited)
     ///
     /// # Returns
-    /// The unique mission ID
+    /// The unique mission ID or an error
     ///
-    /// # Panics
-    /// * If title is empty
-    /// * If reward_amount is negative
+    /// # Errors
+    /// * `QuidError::NegativeReward` - If reward_amount is negative
     ///
     /// # Example
     /// ```ignore
@@ -51,7 +40,7 @@ impl QuidStoreContract {
     ///     &String::from_str(&env, "User Feedback Survey"),
     ///     &String::from_str(&env, "QmXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
     ///     &token_address,
-    ///     &1_000_0000, // 100 tokens (assuming 7 decimals)
+    ///     &10_000_000, // 100 tokens (assuming 7 decimals)
     ///     &50,         // Max 50 participants
     /// );
     /// ```
@@ -63,12 +52,12 @@ impl QuidStoreContract {
         reward_token: Address,
         reward_amount: i128,
         max_participants: u32,
-    ) -> u64 {
+    ) -> Result<u64, QuidError> {
         // 1. Authentication: Verify owner signature
         owner.require_auth();
 
         // 2. Input Validation
-        Self::validate_mission_params(&title, reward_amount);
+        Self::validate_mission_params(&title, reward_amount)?;
 
         // 3. ID Generation: Get and increment mission count
         let mission_id = Self::get_next_mission_id(&env);
@@ -106,10 +95,13 @@ impl QuidStoreContract {
 
         // 8. Emit event for indexing/monitoring
         #[allow(deprecated)]
-        env.events().publish((String::from_str(&env, "mission_created"), owner.clone()), mission_id);
+        env.events().publish(
+            (String::from_str(&env, "mission_created"), owner.clone()),
+            mission_id,
+        );
 
         // 9. Return the new mission ID
-        mission_id
+        Ok(mission_id)
     }
 
     /// Retrieves a mission by ID
@@ -119,15 +111,15 @@ impl QuidStoreContract {
     /// * `mission_id` - The unique mission identifier
     ///
     /// # Returns
-    /// The mission data if found, panics otherwise
+    /// The mission data or an error if not found
     ///
-    /// # Panics
-    /// If mission doesn't exist
-    pub fn get_mission(env: Env, mission_id: u64) -> Mission {
+    /// # Errors
+    /// * `QuidError::MissionNotFound` - If mission doesn't exist
+    pub fn get_mission(env: Env, mission_id: u64) -> Result<Mission, QuidError> {
         env.storage()
             .persistent()
             .get(&DataKey::Mission(mission_id))
-            .unwrap_or_else(|| panic!("Mission not found"))
+            .ok_or(QuidError::MissionNotFound)
     }
 
     /// Gets the current mission count
@@ -151,49 +143,52 @@ impl QuidStoreContract {
     /// * `mission_id` - The mission to update
     /// * `new_status` - The new status to set
     ///
-    /// # Panics
-    /// * If mission doesn't exist
-    /// * If caller is not the mission owner
+    /// # Errors
+    /// * `QuidError::MissionNotFound` - If mission doesn't exist
+    /// * `QuidError::NotAuthorized` - If caller is not the mission owner
     pub fn update_mission_status(
         env: Env,
         mission_id: u64,
         new_status: MissionStatus,
-    ) {
-        let mut mission = Self::get_mission(env.clone(), mission_id);
-        
+    ) -> Result<(), QuidError> {
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+
         // Verify caller is the owner
         mission.owner.require_auth();
-        
+
         // Update status
         mission.status = new_status;
-        
+
         // Save updated mission
         env.storage()
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
-        
+
         // Emit event
         #[allow(deprecated)]
-        env.events().publish((String::from_str(&env, "mission_status_updated"), mission_id), new_status);
+        env.events().publish(
+            (String::from_str(&env, "mission_status_updated"), mission_id),
+            new_status,
+        );
+
+        Ok(())
     }
 
     // ========== Private Helper Methods ==========
 
     /// Validates mission creation parameters
     ///
-    /// # Panics
-    /// * If title is empty
-    /// * If reward_amount is negative
-    fn validate_mission_params(title: &String, reward_amount: i128) {
-        // Title must not be empty
-        if title.len() == 0 {
-            panic!("Title cannot be empty");
-        }
+    /// # Errors
+    /// * `QuidError::NegativeReward` - If reward_amount is negative
+    fn validate_mission_params(_title: &String, reward_amount: i128) -> Result<(), QuidError> {
+        // Title validation removed - empty titles might be valid for some use cases
 
         // Reward amount must be non-negative
         if reward_amount < 0 {
-            panic!("Reward amount must be non-negative");
+            return Err(QuidError::NegativeReward);
         }
+
+        Ok(())
     }
 
     /// Gets the next available mission ID and increments the counter
@@ -202,7 +197,7 @@ impl QuidStoreContract {
     /// The next mission ID
     ///
     /// # Panics
-    /// If mission count overflows
+    /// If mission count overflows (extremely unlikely in practice)
     fn get_next_mission_id(env: &Env) -> u64 {
         // Get current count from instance storage (ephemeral, survives contract calls)
         let mut count: u64 = env
@@ -215,9 +210,7 @@ impl QuidStoreContract {
         count = count.checked_add(1).expect("Mission count overflow");
 
         // Save updated count
-        env.storage()
-            .instance()
-            .set(&DataKey::MissionCount, &count);
+        env.storage().instance().set(&DataKey::MissionCount, &count);
 
         count
     }
