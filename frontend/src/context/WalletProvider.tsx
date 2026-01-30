@@ -28,21 +28,16 @@ export const WalletProvider: FC<{ children: ReactNode }> = ({
     children
 }) => {
 
-    const [isConnected, setIsConnected] = useState<boolean>(false);
-    const [publicKey, setPublicKey] = useState<string>("");
-
-    useEffect(() => {
+    const [isConnected, setIsConnected] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
         const storedWalletAddress = localStorage.getItem('@StellarWalletsKit/activeAddress');
-
-        if (!storedWalletAddress || storedWalletAddress === "") {
-            setIsConnected(false);
-            setPublicKey("");
-            return;
-        }
-
-        setIsConnected(true);
-        setPublicKey(storedWalletAddress);
-    }, [])
+        return !!storedWalletAddress && storedWalletAddress !== "";
+    });
+    const [publicKey, setPublicKey] = useState<string>(() => {
+        if (typeof window === 'undefined') return "";
+        const storedWalletAddress = localStorage.getItem('@StellarWalletsKit/activeAddress');
+        return storedWalletAddress || "";
+    });
     
     const connect =  async (walletId?: string): Promise<string | undefined> => {
         if (isConnected) {

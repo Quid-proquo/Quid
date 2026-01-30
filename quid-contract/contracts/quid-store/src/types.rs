@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, String, contracttype};
+use soroban_sdk::{contracttype, Address, String};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Copy)]
 #[contracttype]
@@ -8,7 +8,7 @@ pub enum MissionStatus {
     Started,
     Paused,
     Completed,
-    Cancelled
+    Cancelled,
 }
 
 #[contracttype]
@@ -29,5 +29,5 @@ pub struct Mission {
 #[contracttype]
 pub enum DataKey {
     Mission(u64),
-    MissionCount
+    MissionCount,
 }

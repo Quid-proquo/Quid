@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
+mod error;
 mod types;
 use types::{DataKey, Mission, MissionStatus};
 

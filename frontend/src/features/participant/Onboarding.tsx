@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState } from "react";
 // Assuming you are using shadcn/ui or similar, keep these imports.
 // If not, standard HTML elements work with these classes too.
 import { Button } from "../../components/ui/button";
@@ -46,7 +46,7 @@ interface FrameProps {
   userType?: UserType;
 }
 
-export const Frame = ({ userType = "earner" }: FrameProps): JSX.Element => {
+export const Frame = ({ userType = "earner" }: FrameProps): React.ReactElement => {
   const [currentStep, setCurrentStep] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
 

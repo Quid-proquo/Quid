@@ -33,7 +33,7 @@ export default function SubmissionCard({
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#141026] rounded-2xl p-3 md:p-4 m-2 md:m-4 gap-4 md:gap-0">
           <div className="flex flex-col gap-3 w-full md:w-auto">
             <h2 className="text-lg md:text-xl text-white font-medium">
-              It's time to select the winners
+              It&apos;s time to select the winners
             </h2>
             <p className="text-[#CFC9FF] text-xs md:text-sm flex items-center gap-2">
               Click this{" "}
