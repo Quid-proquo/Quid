@@ -135,6 +135,66 @@ impl QuidStoreContract {
             .ok_or(QuidError::MissionNotFound)
     }
 
+    /// Cancels a mission and refunds unspent tokens to the owner
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `mission_id` - The mission to cancel
+    ///
+    /// # Errors
+    /// * `QuidError::MissionNotFound` - If mission doesn't exist
+    /// * `QuidError::NotAuthorized` - If caller is not the mission owner
+    pub fn cancel_mission(env: Env, mission_id: u64) -> Result<(), QuidError> {
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+
+        // Verify caller is the owner
+        mission.owner.require_auth();
+
+        // Check if mission is already closed (Cancelled or Completed)
+        if matches!(
+            mission.status,
+            MissionStatus::Cancelled | MissionStatus::Completed
+        ) {
+            return Err(QuidError::MissionClosed);
+        }
+
+        // 1. Calculate Remaining Slots
+        // Note: participants_count starts at 0 and increments as people join
+        let remaining_slots = mission.max_participants - mission.participants_count;
+
+        // 2. Calculate Refund Amount
+        let refund_amount: i128 = (remaining_slots as i128)
+            .checked_mul(mission.reward_amount)
+            .ok_or(QuidError::NegativeReward)?;
+
+        // 3. Execute Refund (If > 0)
+        if refund_amount > 0 {
+            let token_client = token::Client::new(&env, &mission.reward_token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &mission.owner,
+                &refund_amount,
+            );
+        }
+
+        // Update status
+        mission.status = MissionStatus::Cancelled;
+
+        // Save updated mission
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+
+        // Emit event
+        #[allow(deprecated)]
+        env.events().publish(
+            (String::from_str(&env, "mission_cancelled"), mission_id),
+            refund_amount,
+        );
+
+        Ok(())
+    }
+
     /// Gets the current mission count
     ///
     /// # Arguments
