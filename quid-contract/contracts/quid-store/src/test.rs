@@ -447,3 +447,70 @@ fn test_escrow_balance_after_mission_creation() {
 
     assert_eq!(contract_balance, total_needed);
 }
+
+#[test]
+fn test_cancel_mission_full_refund() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_id);
+
+    let reward_amount = 10_000_000;
+    let max_participants = 5;
+    let total_needed = reward_amount * max_participants as i128;
+
+    // Use admin client to mint tokens for owner first?
+    // setup_test_env already mints 1 trillion to owner.
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Refund Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &reward_amount,
+        &max_participants,
+    );
+
+    // Verify contract has the tokens
+    let contract_balance_before = token_client.balance(&contract_id);
+    assert_eq!(contract_balance_before, total_needed);
+
+    // Cancel mission
+    client.cancel_mission(&mission_id);
+
+    // Verify contract balance is 0 (refunded)
+    let contract_balance_after = token_client.balance(&contract_id);
+    assert_eq!(contract_balance_after, 0);
+
+    // Verify owner got refund
+    // initial total = 1_000_000_000_000
+    // after create = 1_000_000_000_000 - total_needed
+    // after refund = 1_000_000_000_000
+    let owner_balance_final = token_client.balance(&owner);
+    assert_eq!(owner_balance_final, 1_000_000_000_000);
+
+    // Verify status is Cancelled
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.status, MissionStatus::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_cancel_already_cancelled_mission_fails() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &10_000_000,
+        &50,
+    );
+
+    // Cancel first time - succeeds
+    client.cancel_mission(&mission_id);
+
+    // Cancel second time - should fail with MissionClosed
+    client.cancel_mission(&mission_id);
+}
