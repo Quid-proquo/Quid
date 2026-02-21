@@ -187,6 +187,41 @@ impl QuidStoreContract {
     }
 
     // ---------- Helpers ----------
+    /// Pauses an open mission
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `id` - The mission identifier
+    ///
+    /// # Errors
+    /// * `QuidError::MissionNotFound` - If mission doesn't exist
+    /// * `QuidError::NotAuthorized` - If caller is not the owner
+    pub fn pause_mission(env: Env, id: u64) -> Result<(), QuidError> {
+        // 1. Load Mission
+        let mut mission = Self::get_mission(env.clone(), id)?;
+
+        // 2. Authenticate Owner
+        mission.owner.require_auth();
+
+        // 3. Update State
+        mission.status = MissionStatus::Paused;
+
+        // 4. Save to Storage
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(id), &mission);
+
+        // Emit event for monitoring
+        #[allow(deprecated)]
+        env.events().publish(
+            (String::from_str(&env, "mission_paused"), id),
+            MissionStatus::Paused,
+        );
+
+        Ok(())
+    }
+
+    // ========== Private Helper Methods ==========
 
     fn validate_mission_params(_title: &String, reward_amount: i128) -> Result<(), QuidError> {
         if reward_amount <= 0 {

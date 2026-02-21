@@ -3,6 +3,7 @@
 use super::*;
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, String};
 use types::MissionStatus;
 
 /// Helper function to create test environment and register contract
@@ -656,4 +657,68 @@ fn test_cancel_already_cancelled_mission_fails() {
 
     client.cancel_mission(&mission_id);
     client.cancel_mission(&mission_id); // should panic
+}
+
+    // Cancel second time - should fail with MissionClosed
+    client.cancel_mission(&mission_id);
+}
+
+#[test]
+fn test_pause_mission_success() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Pause Test Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &10_000_000,
+        &50,
+    );
+
+    // Initial status should be Created
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.status, MissionStatus::Created);
+
+    // Pause the mission
+    client.pause_mission(&mission_id);
+
+    // Verify status is now Paused
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.status, MissionStatus::Paused);
+}
+
+#[test]
+#[should_panic]
+fn test_pause_mission_only_owner_can_pause() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Owner Only Pause Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &10_000_000,
+        &50,
+    );
+
+    // Create a different user
+    let non_owner = Address::generate(&env);
+
+    // Mock non-owner authentication
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "pause_mission",
+            args: (mission_id,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    // Attempting to pause as non-owner should fail because the contract expects owner's auth
+    // Since we are mocking non_owner's auth for this call, require_auth(owner) will fail.
+    client.pause_mission(&mission_id);
 }
