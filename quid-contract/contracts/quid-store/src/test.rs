@@ -659,10 +659,6 @@ fn test_cancel_already_cancelled_mission_fails() {
     client.cancel_mission(&mission_id); // should panic
 }
 
-    // Cancel second time - should fail with MissionClosed
-    client.cancel_mission(&mission_id);
-}
-
 #[test]
 fn test_pause_mission_success() {
     let (env, contract_id, owner, token_id) = setup_test_env();
