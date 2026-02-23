@@ -280,7 +280,11 @@ impl QuidStoreContract {
 
         // 3. Execute Payout
         let token_client = token::Client::new(&env, &mission.reward_token);
-        token_client.transfer(&env.current_contract_address(), &hunter, &mission.reward_amount);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &hunter,
+            &mission.reward_amount,
+        );
 
         // 4. Update States
         mission.participants_count += 1;

@@ -767,9 +767,7 @@ fn test_payout_participant_success() {
 
     // 6. Verify paid flag set
     let paid_key = DataKey::Paid(mission_id, hunter);
-    let paid_exists = env.as_contract(&contract_id, || {
-        env.storage().persistent().has(&paid_key)
-    });
+    let paid_exists = env.as_contract(&contract_id, || env.storage().persistent().has(&paid_key));
     assert!(paid_exists);
 }
 
