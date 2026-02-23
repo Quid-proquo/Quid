@@ -5,7 +5,7 @@ mod error;
 mod types;
 use error::QuidError;
 use soroban_sdk::token;
-use types::{DataKey, Mission, MissionStatus};
+use types::{DataKey, Mission, MissionStatus, Submission};
 
 /// Quid Store Contract
 #[contract]
@@ -181,6 +181,76 @@ impl QuidStoreContract {
         env.events().publish(
             (String::from_str(&env, "mission_status_updated"), mission_id),
             new_status,
+        );
+
+        Ok(())
+    }
+
+    /// Submit to a mission (Hunter action)
+    ///
+    /// # Arguments
+    /// * `mission_id` - The mission identifier
+    /// * `hunter` - The hunter's address
+    ///
+    /// # Errors
+    /// * `QuidError::MissionNotFound` - If mission doesn't exist
+    /// * `QuidError::AlreadySubmitted` - If hunter already submitted to this mission
+    /// * `QuidError::MissionClosed` - If mission is not accepting submissions
+    pub fn submit_mission(env: Env, mission_id: u64, hunter: Address) -> Result<(), QuidError> {
+        // Require authentication from the hunter
+        hunter.require_auth();
+
+        // 1. Load mission
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+
+        // 2. Check if mission is open for submissions
+        if matches!(
+            mission.status,
+            MissionStatus::Completed | MissionStatus::Cancelled | MissionStatus::Paused
+        ) {
+            return Err(QuidError::MissionClosed);
+        }
+
+        // 3. Check if hunter already submitted to this mission
+        let submission_key = DataKey::Submission(mission_id, hunter.clone());
+        if env.storage().persistent().has(&submission_key) {
+            return Err(QuidError::AlreadySubmitted);
+        }
+
+        // 4. Create and save submission
+        let mut submitted_at = env.ledger().timestamp();
+        if submitted_at == 0 {
+            submitted_at = 1;
+        }
+
+        let submission = Submission {
+            mission_id,
+            hunter: hunter.clone(),
+            submitted_at,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&submission_key, &submission);
+
+        // Extend TTL for the submission
+        env.storage()
+            .persistent()
+            .extend_ttl(&submission_key, 5184000, 5184000);
+
+        // 5. Increment participants count
+        mission.participants_count = mission.participants_count.saturating_add(1);
+
+        // 6. Save updated mission
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+
+        // Emit event for monitoring
+        #[allow(deprecated)]
+        env.events().publish(
+            (String::from_str(&env, "mission_submitted"), mission_id),
+            hunter,
         );
 
         Ok(())

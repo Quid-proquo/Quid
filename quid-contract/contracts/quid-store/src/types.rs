@@ -30,4 +30,13 @@ pub struct Mission {
 pub enum DataKey {
     Mission(u64),
     MissionCount,
+    Submission(u64, Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Submission {
+    pub mission_id: u64,
+    pub hunter: Address,
+    pub submitted_at: u64,
 }
