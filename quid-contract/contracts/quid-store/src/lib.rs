@@ -5,7 +5,7 @@ mod error;
 mod types;
 use error::QuidError;
 use soroban_sdk::token;
-use types::{DataKey, Mission, MissionStatus};
+use types::{DataKey, Mission, MissionStatus, SubmissionStatus};
 
 /// Quid Store Contract
 #[contract]
@@ -273,6 +273,71 @@ impl QuidStoreContract {
         env.storage().instance().set(&DataKey::MissionCount, &count);
 
         count
+    }
+
+    pub fn payout_participant(env: Env, mission_id: u64, hunter: Address) -> Result<(), QuidError> {
+        // 1. Load Mission & Authenticate
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+
+        // 2. Validate Submission
+        // Validation: Submission must be Pending. Mission must be Open.
+        if matches!(
+            mission.status,
+            MissionStatus::Completed | MissionStatus::Cancelled | MissionStatus::Paused
+        ) {
+            return Err(QuidError::MissionClosed);
+        }
+
+        let submission_key = DataKey::Submission(mission_id, hunter.clone());
+        let submission_status: SubmissionStatus = env
+            .storage()
+            .persistent()
+            .get(&submission_key)
+            .ok_or(QuidError::SubmissionNotFound)?;
+
+        if submission_status == SubmissionStatus::Paid {
+            return Err(QuidError::AlreadyPaid);
+        }
+
+        if submission_status != SubmissionStatus::Pending {
+            return Err(QuidError::NotPending);
+        }
+
+        let paid_key = DataKey::Paid(mission_id, hunter.clone());
+        if env.storage().persistent().has(&paid_key) {
+            return Err(QuidError::AlreadyPaid);
+        }
+
+        // 3. Execute Payout
+        let token_client = token::Client::new(&env, &mission.reward_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &hunter,
+            &mission.reward_amount,
+        );
+
+        // 4. Update States
+        mission.participants_count += 1;
+        if mission.max_participants > 0 && mission.participants_count >= mission.max_participants {
+            mission.status = MissionStatus::Completed;
+        }
+
+        env.storage().persistent().set(&paid_key, &true);
+        env.storage()
+            .persistent()
+            .set(&submission_key, &SubmissionStatus::Paid);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+
+        #[allow(deprecated)]
+        env.events().publish(
+            (String::from_str(&env, "payout"), mission_id, hunter),
+            mission.reward_amount,
+        );
+
+        Ok(())
     }
 }
 

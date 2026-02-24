@@ -1031,3 +1031,137 @@ fn test_pause_mission_only_owner_can_pause() {
     // Since we are mocking non_owner's auth for this call, require_auth(owner) will fail.
     client.pause_mission(&mission_id);
 }
+
+#[test]
+fn test_payout_participant_success() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_id);
+
+    let hunter = Address::generate(&env);
+    let reward_amount = 10_000_000;
+    let max_participants = 5;
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Payout Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &reward_amount,
+        &max_participants,
+    );
+
+    // 1. Manually set submission state to Pending (simulating a submission)
+    let submission_key = DataKey::Submission(mission_id, hunter.clone());
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&submission_key, &SubmissionStatus::Pending);
+    });
+
+    let hunter_balance_before = token_client.balance(&hunter);
+    assert_eq!(hunter_balance_before, 0);
+
+    // 2. Execute payout
+    client.payout_participant(&mission_id, &hunter);
+
+    // 3. Verify hunter received reward
+    let hunter_balance_after = token_client.balance(&hunter);
+    assert_eq!(hunter_balance_after, reward_amount);
+
+    // 4. Verify mission state updated
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.participants_count, 1);
+
+    // 5. Verify submission status updated to Paid
+    let submission_status: SubmissionStatus = env.as_contract(&contract_id, || {
+        env.storage().persistent().get(&submission_key).unwrap()
+    });
+    assert_eq!(submission_status, SubmissionStatus::Paid);
+
+    // 6. Verify paid flag set
+    let paid_key = DataKey::Paid(mission_id, hunter);
+    let paid_exists = env.as_contract(&contract_id, || env.storage().persistent().has(&paid_key));
+    assert!(paid_exists);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_payout_participant_submission_not_found() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &10_000_000,
+        &5,
+    );
+
+    // No submission state set - should fail with SubmissionNotFound (#10)
+    client.payout_participant(&mission_id, &hunter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_payout_already_paid_fails() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &10_000_000,
+        &5,
+    );
+
+    // Setup: already paid
+    let submission_key = DataKey::Submission(mission_id, hunter.clone());
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&submission_key, &SubmissionStatus::Pending);
+    });
+
+    // First payout
+    client.payout_participant(&mission_id, &hunter);
+
+    // Second payout should fail with AlreadyPaid (#9)
+    client.payout_participant(&mission_id, &hunter);
+}
+
+#[test]
+fn test_payout_completes_mission_at_max_participants() {
+    let (env, contract_id, owner, token_id) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let max_participants = 1;
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Max Payout Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_id,
+        &10_000_000,
+        &max_participants,
+    );
+
+    let hunter = Address::generate(&env);
+    let submission_key = DataKey::Submission(mission_id, hunter.clone());
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&submission_key, &SubmissionStatus::Pending);
+    });
+
+    client.payout_participant(&mission_id, &hunter);
+
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.status, MissionStatus::Completed);
+}
