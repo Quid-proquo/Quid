@@ -221,6 +221,19 @@ impl QuidStoreContract {
         Ok(())
     }
 
+    pub fn submit_feedback(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        ipfs_cid: String,
+    ) -> Result<(), QuidError> {
+        hunter.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Submission(mission_id, hunter.clone()), &ipfs_cid);
+        Ok(())
+    }
+
     // ========== Private Helper Methods ==========
 
     fn validate_mission_params(_title: &String, reward_amount: i128) -> Result<(), QuidError> {

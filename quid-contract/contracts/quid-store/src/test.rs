@@ -606,6 +606,185 @@ fn test_get_mission_status_lightweight_query() {
     assert_eq!(status, MissionStatus::Started);
 }
 
+mod submit_feedback_tests {
+    use soroban_sdk::token::StellarAssetClient;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
+
+    use crate::{DataKey, QuidStoreContract, QuidStoreContractClient};
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    /// Mirrors setup_test_env() but scoped to this mod so it stays
+    /// self-contained and independent of the outer test helpers.
+    fn setup() -> (Env, Address, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(QuidStoreContract, ());
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_address = token_contract.address();
+
+        // Give the owner enough balance to fund any escrow in these tests.
+        let hunter = Address::generate(&env);
+        StellarAssetClient::new(&env, &token_address).mint(&hunter, &1_000_000_000_000);
+
+        (env, contract_id, hunter, token_address)
+    }
+
+    fn ipfs_cid(env: &Env) -> String {
+        String::from_str(
+            env,
+            "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // Happy path
+    // ------------------------------------------------------------------
+
+    /// Core acceptance criterion: calling submit_feedback persists the CID
+    /// and it can be read back from persistent storage under the correct key.
+    #[test]
+    fn stores_ipfs_cid_for_mission_and_hunter() {
+        let (env, contract_id, hunter, _token) = setup();
+        let client = QuidStoreContractClient::new(&env, &contract_id);
+
+        let cid = ipfs_cid(&env);
+        client.submit_feedback(&1u64, &hunter, &cid);
+
+        let stored: String = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Submission(1u64, hunter.clone()))
+                .expect("submission must be stored under DataKey::Submission")
+        });
+
+        assert_eq!(stored, cid);
+    }
+
+    /// A second submission on the same (mission, hunter) pair overwrites the
+    /// first — last-write-wins, no duplicate guard in this scaffold.
+    #[test]
+    fn overwrites_previous_submission() {
+        let (env, contract_id, hunter, _token) = setup();
+        let client = QuidStoreContractClient::new(&env, &contract_id);
+
+        let cid_v1 = String::from_str(&env, "bafybeifirst");
+        let cid_v2 = String::from_str(&env, "bafybeisecond");
+
+        client.submit_feedback(&1u64, &hunter, &cid_v1);
+        client.submit_feedback(&1u64, &hunter, &cid_v2);
+
+        let stored: String = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Submission(1u64, hunter.clone()))
+                .unwrap()
+        });
+
+        assert_eq!(stored, cid_v2);
+    }
+
+    /// Two hunters on the same mission are stored at independent keys and
+    /// do not overwrite each other.
+    #[test]
+    fn different_hunters_have_independent_storage_keys() {
+        let (env, contract_id, hunter_a, token) = setup();
+        let client = QuidStoreContractClient::new(&env, &contract_id);
+
+        let hunter_b = Address::generate(&env);
+        StellarAssetClient::new(&env, &token).mint(&hunter_b, &1_000_000_000_000);
+
+        let cid_a = String::from_str(&env, "bafybeia");
+        let cid_b = String::from_str(&env, "bafybeib");
+
+        client.submit_feedback(&1u64, &hunter_a, &cid_a);
+        client.submit_feedback(&1u64, &hunter_b, &cid_b);
+
+        let stored_a: String = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Submission(1u64, hunter_a.clone()))
+                .unwrap()
+        });
+        let stored_b: String = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Submission(1u64, hunter_b.clone()))
+                .unwrap()
+        });
+
+        assert_eq!(stored_a, cid_a);
+        assert_eq!(stored_b, cid_b);
+    }
+
+    /// The same hunter submitting to two different missions produces two
+    /// independent storage entries.
+    #[test]
+    fn same_hunter_different_missions_are_independent() {
+        let (env, contract_id, hunter, _token) = setup();
+        let client = QuidStoreContractClient::new(&env, &contract_id);
+
+        let cid_m1 = String::from_str(&env, "bafybeimission1");
+        let cid_m2 = String::from_str(&env, "bafybeimission2");
+
+        client.submit_feedback(&1u64, &hunter, &cid_m1);
+        client.submit_feedback(&2u64, &hunter, &cid_m2);
+
+        let stored_m1: String = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Submission(1u64, hunter.clone()))
+                .unwrap()
+        });
+        let stored_m2: String = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Submission(2u64, hunter.clone()))
+                .unwrap()
+        });
+
+        assert_eq!(stored_m1, cid_m1);
+        assert_eq!(stored_m2, cid_m2);
+    }
+
+    // ------------------------------------------------------------------
+    // Auth enforcement
+    // ------------------------------------------------------------------
+
+    /// Without hunter auth the SDK panics — #[should_panic] is the correct
+    /// pattern since require_auth() does not return a typed Result.
+    #[test]
+    #[should_panic]
+    fn fails_without_hunter_auth() {
+        let env = Env::default();
+        // Deliberately no mock_all_auths — auth cannot be satisfied.
+        let contract_id = env.register(QuidStoreContract, ());
+        let client = QuidStoreContractClient::new(&env, &contract_id);
+        let hunter = Address::generate(&env);
+
+        client.submit_feedback(&1u64, &hunter, &ipfs_cid(&env));
+    }
+
+    /// env.auths() lets us assert that the hunter — and not some other
+    /// address — was the address that satisfied require_auth().
+    #[test]
+    fn requires_exactly_hunter_auth() {
+        let (env, contract_id, hunter, _token) = setup();
+        let client = QuidStoreContractClient::new(&env, &contract_id);
+
+        client.submit_feedback(&1u64, &hunter, &ipfs_cid(&env));
+
+        let auths = env.auths();
+        assert!(
+            auths.iter().any(|(addr, _)| addr == &hunter),
+            "hunter must be the authorising address"
+        );
+    }
+}
 // ===== Cancel + Refund Tests =====
 
 #[test]
