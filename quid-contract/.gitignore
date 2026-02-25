@@ -5,3 +5,5 @@ target
 .soroban
 .stellar
 .vscode/
+
+**/*/test_snapshots
