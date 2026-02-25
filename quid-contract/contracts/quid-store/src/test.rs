@@ -780,3 +780,119 @@ fn test_create_mission_with_negative_asset_amount() {
         &min_asset,
     );
 }
+
+#[test]
+fn test_full_lifecycle_integration() {
+    // Setup environment
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    // Create hunter and mint tokens
+    let hunter = Address::generate(&env);
+    let hunter_initial_balance: i128 = 1000;
+    mint_tokens_for_hunter(&env, &token_address, &hunter, hunter_initial_balance);
+
+    // Mission parameters
+    let reward_amount: i128 = 100;
+    let stake_amount: i128 = 10;
+    let max_participants: u32 = 5;
+
+    // Record initial balances
+    let owner_balance_initial = token_client.balance(&owner);
+    let hunter_balance_initial = token_client.balance(&hunter);
+    let contract_balance_initial = token_client.balance(&contract_id);
+
+    // Step 1: Create mission
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Full Lifecycle Test"),
+        &String::from_str(&env, "QmTestDescription"),
+        &reward,
+        &max_participants,
+        &min_asset,
+    );
+
+    // Verify mission was created
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.id, mission_id);
+    assert_eq!(mission.owner, owner);
+    assert_eq!(mission.reward_amount, reward_amount);
+    assert_eq!(mission.max_participants, max_participants);
+    assert_eq!(mission.participants_count, 0);
+    assert_eq!(mission.status, MissionStatus::Open);
+
+    // Verify balances after mission creation
+    let total_reward_pool = reward_amount * (max_participants as i128);
+    let owner_balance_after_create = token_client.balance(&owner);
+    let contract_balance_after_create = token_client.balance(&contract_id);
+
+    assert_eq!(
+        owner_balance_after_create,
+        owner_balance_initial - total_reward_pool
+    );
+    assert_eq!(
+        contract_balance_after_create,
+        contract_balance_initial + total_reward_pool
+    );
+
+    // Step 2: Submit work
+    let submission_cid = String::from_str(&env, "QmSubmissionHash");
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &submission_cid,
+        &token_address,
+        &stake_amount,
+    );
+
+    // Verify balances after submission (stake deducted)
+    let hunter_balance_after_submit = token_client.balance(&hunter);
+    let contract_balance_after_submit = token_client.balance(&contract_id);
+
+    assert_eq!(
+        hunter_balance_after_submit,
+        hunter_balance_initial - stake_amount
+    );
+    assert_eq!(
+        contract_balance_after_submit,
+        contract_balance_after_create + stake_amount
+    );
+
+    // Step 3: Payout participant
+    client.payout_participant(&mission_id, &hunter);
+
+    // Verify final balances
+    let hunter_balance_final = token_client.balance(&hunter);
+    let contract_balance_final = token_client.balance(&contract_id);
+    let mission_final = client.get_mission(&mission_id);
+
+    // Hunter should have: initial - stake + reward
+    assert_eq!(
+        hunter_balance_final,
+        hunter_balance_initial - stake_amount + reward_amount
+    );
+
+    // Contract should have: initial pool + stake - reward
+    assert_eq!(
+        contract_balance_final,
+        contract_balance_after_create + stake_amount - reward_amount
+    );
+
+    // Mission should be updated
+    assert_eq!(mission_final.participants_count, 1);
+    assert_eq!(mission_final.status, MissionStatus::Open);
+
+    // Verify the submission status was updated
+    // (We can't directly access submission, but payout wouldn't work if status wasn't Pending)
+}
