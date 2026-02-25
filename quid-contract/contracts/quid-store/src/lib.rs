@@ -384,9 +384,22 @@ impl QuidStoreContract {
     }
 
     /// Set the protocol treasury address. Must be called by the treasury itself.
-    pub fn set_treasury(env: Env, treasury: Address) {
-        treasury.require_auth();
-        env.storage().instance().set(&DataKey::Treasury, &treasury);
+    pub fn set_treasury(env: Env, new_treasury: Address) {
+        // If a treasury is already set, only the current treasury may update it.
+        if let Some(current_treasury) = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::Treasury)
+        {
+            current_treasury.require_auth();
+        } else {
+            // Initial set: require authorization from the new treasury address.
+            new_treasury.require_auth();
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Treasury, &new_treasury);
     }
 
     /// Get the protocol treasury address.
