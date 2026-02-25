@@ -32,18 +32,28 @@ fn test_happy_path_create_submit_payout() {
     let token_client = TokenClient::new(&env, &token_address);
 
     let hunter = Address::generate(&env);
-    let reward = 100;
+    let reward_amount = 100;
     let stake = 10;
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
 
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Happy Path"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
         &reward,
         &5,
+        &min_asset,
     );
 
     let cid = String::from_str(&env, "QmSubmission");
@@ -53,7 +63,7 @@ fn test_happy_path_create_submit_payout() {
     client.payout_participant(&mission_id, &hunter);
 
     let balance_after = token_client.balance(&hunter);
-    assert_eq!(balance_after, balance_before + reward);
+    assert_eq!(balance_after, balance_before + reward_amount);
 
     let mission = client.get_mission(&mission_id);
     assert_eq!(mission.participants_count, 1);
@@ -68,13 +78,23 @@ fn test_prevent_double_submission() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Double Sub Test"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     let cid = String::from_str(&env, "QmFirst");
@@ -88,17 +108,27 @@ fn test_cancel_mission_refund() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
     let token_client = TokenClient::new(&env, &token_address);
 
-    let reward: i128 = 100;
+    let reward_amount: i128 = 100;
     let slots: u32 = 10;
-    let total_deposit = reward * (slots as i128);
+    let total_deposit = reward_amount * (slots as i128);
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount,
+    };
 
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Refund Test"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
         &reward,
         &slots,
+        &min_asset,
     );
 
     let contract_balance = token_client.balance(&contract_id);
@@ -119,13 +149,23 @@ fn test_mission_capacity_limit() {
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Full Test"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &1,
+        &min_asset,
     );
 
     let hunter1 = Address::generate(&env);
@@ -150,13 +190,23 @@ fn test_cannot_payout_twice() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Double Pay"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     client.submit_feedback(
@@ -199,13 +249,24 @@ fn test_submit_feedback_mission_not_found() {
 fn test_create_mission_negative_reward() {
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 0,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let _ = client.create_mission(
         &owner,
         &String::from_str(&env, "Bad Reward"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &0,
+        &reward,
         &5,
+        &min_asset,
     );
 }
 
@@ -218,13 +279,23 @@ fn test_submit_feedback_when_paused() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Pause Test"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
     client.pause_mission(&mission_id);
     client.submit_feedback(
@@ -242,16 +313,26 @@ fn test_cancel_mission_partial_payouts_refund() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
     let token_client = TokenClient::new(&env, &token_address);
 
-    let reward: i128 = 100;
+    let reward_amount: i128 = 100;
     let slots: u32 = 3;
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
 
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Partial Refund"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
         &reward,
         &slots,
+        &min_asset,
     );
 
     let hunter = Address::generate(&env);
@@ -269,7 +350,7 @@ fn test_cancel_mission_partial_payouts_refund() {
     client.cancel_mission(&mission_id);
     let owner_balance_after_cancel = token_client.balance(&owner);
 
-    let expected_refund = (slots - 1) as i128 * reward;
+    let expected_refund = (slots - 1) as i128 * reward_amount;
     assert_eq!(
         owner_balance_after_cancel,
         owner_balance_before_cancel + expected_refund
@@ -289,13 +370,23 @@ fn test_payout_without_submission() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
     let hunter = Address::generate(&env);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "No Sub"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
     client.payout_participant(&mission_id, &hunter);
 }
@@ -310,13 +401,23 @@ fn test_stake_deducted_on_submission() {
     let stake_amount = 50;
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Stake Test"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     let hunter_balance_before = token_client.balance(&hunter);
@@ -349,13 +450,23 @@ fn test_stake_invalid_amount_zero() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Invalid Stake"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     client.submit_feedback(
@@ -376,13 +487,23 @@ fn test_stake_invalid_amount_negative() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Negative Stake"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     client.submit_feedback(
@@ -402,13 +523,23 @@ fn test_update_submission_success() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Update Test"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     let original_cid = String::from_str(&env, "QmOriginal");
@@ -430,13 +561,23 @@ fn test_update_submission_after_payout() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Update After Pay"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     client.submit_feedback(
@@ -459,13 +600,23 @@ fn test_update_submission_not_found() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
     let hunter = Address::generate(&env);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "No Sub Update"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     // Try to update without submitting first
@@ -481,13 +632,23 @@ fn test_update_submission_mission_not_open() {
 
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
 
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
     let mission_id = client.create_mission(
         &owner,
         &String::from_str(&env, "Paused Update"),
         &String::from_str(&env, "QmDesc"),
-        &token_address,
-        &100,
+        &reward,
         &5,
+        &min_asset,
     );
 
     client.submit_feedback(
@@ -501,4 +662,121 @@ fn test_update_submission_mission_not_open() {
 
     // Should fail: mission is paused
     client.update_submission(&mission_id, &hunter, &String::from_str(&env, "QmNew"));
+}
+
+#[test]
+fn test_create_mission_with_asset_gating() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let gating_token = Address::generate(&env);
+    let min_amount: i128 = 1000;
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token.clone()),
+        min_asset_amount: min_amount,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.min_asset, Some(gating_token));
+    assert_eq!(mission.min_asset_amount, min_amount);
+}
+
+#[test]
+fn test_create_mission_without_asset_gating() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "No Gate"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.min_asset, None);
+    assert_eq!(mission.min_asset_amount, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_create_mission_with_zero_asset_amount() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let gating_token = Address::generate(&env);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token),
+        min_asset_amount: 0,
+    };
+
+    let _ = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Invalid Gate"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_create_mission_with_negative_asset_amount() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let gating_token = Address::generate(&env);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token),
+        min_asset_amount: -100,
+    };
+
+    let _ = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Negative Gate"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
 }

@@ -35,6 +35,8 @@ pub struct Mission {
     pub participants_count: u32,
     pub status: MissionStatus,
     pub created_at: u64,
+    pub min_asset: Option<Address>,
+    pub min_asset_amount: i128,
 }
 
 #[contracttype]
