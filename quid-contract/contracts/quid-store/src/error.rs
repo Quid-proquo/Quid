@@ -16,4 +16,6 @@ pub enum QuidError {
     SubmissionNotFound = 11,
     NotPending = 12,
     InvalidAmount = 13,
+    TreasuryNotSet = 14,
+    StakeNotFound = 15,
 }

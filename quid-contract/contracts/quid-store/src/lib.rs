@@ -339,6 +339,19 @@ impl QuidStoreContract {
         Ok(())
     }
 
+    /// Slash a hunter's stake for spam submissions.
+    /// Only the mission owner may invoke this.
+    pub fn slash_hunter_stake(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        stake_token: Address,
+    ) -> Result<(), QuidError> {
+        let mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+        Self::slash_stake(&env, mission_id, hunter, stake_token)
+    }
+
     pub fn get_mission_count(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -368,6 +381,48 @@ impl QuidStoreContract {
         count += 1;
         env.storage().instance().set(&DataKey::MissionCount, &count);
         count
+    }
+
+    /// Set the protocol treasury address. Must be called by the treasury itself.
+    pub fn set_treasury(env: Env, treasury: Address) {
+        treasury.require_auth();
+        env.storage().instance().set(&DataKey::Treasury, &treasury);
+    }
+
+    /// Get the protocol treasury address.
+    pub fn get_treasury(env: Env) -> Result<Address, QuidError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .ok_or(QuidError::TreasuryNotSet)
+    }
+
+    /// Slash a hunter's stake by sending it to the protocol treasury.
+    fn slash_stake(
+        env: &Env,
+        mission_id: u64,
+        hunter: Address,
+        stake_token: Address,
+    ) -> Result<(), QuidError> {
+        let key = DataKey::HunterStake(mission_id, hunter);
+
+        let amount: i128 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(QuidError::StakeNotFound)?;
+
+        let treasury = Self::get_treasury(env.clone())?;
+
+        token::Client::new(env, &stake_token).transfer(
+            &env.current_contract_address(),
+            &treasury,
+            &amount,
+        );
+
+        env.storage().persistent().remove(&key);
+
+        Ok(())
     }
 }
 mod test;
