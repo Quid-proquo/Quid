@@ -836,7 +836,7 @@ fn test_full_lifecycle_integration() {
     let total_reward_pool = reward_amount * (max_participants as i128);
     let owner_balance_after_create = token_client.balance(&owner);
     let contract_balance_after_create = token_client.balance(&contract_id);
-    
+
     assert_eq!(
         owner_balance_after_create,
         owner_balance_initial - total_reward_pool
@@ -859,7 +859,7 @@ fn test_full_lifecycle_integration() {
     // Verify balances after submission (stake deducted)
     let hunter_balance_after_submit = token_client.balance(&hunter);
     let contract_balance_after_submit = token_client.balance(&contract_id);
-    
+
     assert_eq!(
         hunter_balance_after_submit,
         hunter_balance_initial - stake_amount
