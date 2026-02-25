@@ -115,6 +115,8 @@ impl QuidStoreContract {
         mission_id: u64,
         hunter: Address,
         ipfs_cid: String,
+        stake_token: Address,
+        stake_amount: i128,
     ) -> Result<(), QuidError> {
         hunter.require_auth();
 
@@ -132,6 +134,19 @@ impl QuidStoreContract {
         if env.storage().persistent().has(&key) {
             return Err(QuidError::AlreadySubmitted);
         }
+
+        if stake_amount <= 0 {
+            return Err(QuidError::InvalidAmount);
+        }
+
+        let token_client = token::Client::new(&env, &stake_token);
+        token_client.transfer(&hunter, env.current_contract_address(), &stake_amount);
+
+        let stake_key = DataKey::HunterStake(mission_id, hunter.clone());
+        env.storage().persistent().set(&stake_key, &stake_amount);
+        env.storage()
+            .persistent()
+            .extend_ttl(&stake_key, 5184000, 5184000);
 
         let submission = Submission {
             hunter: hunter.clone(),
