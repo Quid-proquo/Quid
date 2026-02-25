@@ -339,7 +339,7 @@ fn test_stake_deducted_on_submission() {
         &100,
         &5,
         &min_asset,
-        &min_asset_amount
+        &min_asset_amount,
     );
 
     let hunter_balance_before = token_client.balance(&hunter);
@@ -383,7 +383,7 @@ fn test_stake_invalid_amount_zero() {
         &100,
         &5,
         &min_asset,
-        &min_asset_amount
+        &min_asset_amount,
     );
 
     client.submit_feedback(
@@ -414,7 +414,7 @@ fn test_stake_invalid_amount_negative() {
         &100,
         &5,
         &min_asset,
-        &min_asset_amount
+        &min_asset_amount,
     );
 
     client.submit_feedback(
