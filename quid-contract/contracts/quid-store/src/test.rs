@@ -257,3 +257,94 @@ fn test_payout_without_submission() {
     );
     client.payout_participant(&mission_id, &hunter);
 }
+
+#[test]
+fn test_update_submission_success() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let hunter = Address::generate(&env);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Update Test"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+    );
+
+    let original_cid = String::from_str(&env, "QmOriginal");
+    client.submit_feedback(&mission_id, &hunter, &original_cid);
+
+    let new_cid = String::from_str(&env, "QmUpdated");
+    client.update_submission(&mission_id, &hunter, &new_cid);
+
+    // Verify submission was updated (by trying to payout - should work)
+    client.payout_participant(&mission_id, &hunter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_update_submission_after_payout() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let hunter = Address::generate(&env);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Update After Pay"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+    );
+
+    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmFirst"));
+    client.payout_participant(&mission_id, &hunter);
+
+    // Should fail: already paid
+    client.update_submission(&mission_id, &hunter, &String::from_str(&env, "QmNew"));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_update_submission_not_found() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let hunter = Address::generate(&env);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "No Sub Update"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+    );
+
+    // Try to update without submitting first
+    client.update_submission(&mission_id, &hunter, &String::from_str(&env, "QmNew"));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_update_submission_mission_not_open() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let hunter = Address::generate(&env);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Paused Update"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+    );
+
+    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmFirst"));
+    client.pause_mission(&mission_id);
+
+    // Should fail: mission is paused
+    client.update_submission(&mission_id, &hunter, &String::from_str(&env, "QmNew"));
+}

@@ -141,6 +141,52 @@ impl QuidStoreContract {
         Ok(())
     }
 
+    /// Update Submission
+    pub fn update_submission(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        new_ipfs_cid: String,
+    ) -> Result<(), QuidError> {
+        hunter.require_auth();
+
+        let mission = Self::get_mission(env.clone(), mission_id)?;
+
+        if mission.status != MissionStatus::Open {
+            return Err(QuidError::MissionNotOpen);
+        }
+
+        let key = DataKey::Submission(mission_id, hunter.clone());
+
+        if !env.storage().persistent().has(&key) {
+            return Err(QuidError::SubmissionNotFound);
+        }
+
+        let submission: Submission = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(QuidError::SubmissionNotFound)?;
+
+        if submission.status == SubmissionStatus::Paid {
+            return Err(QuidError::AlreadyPaid);
+        }
+
+        let updated_submission = Submission {
+            hunter: submission.hunter,
+            ipfs_cid: new_ipfs_cid,
+            status: submission.status,
+            submitted_at: submission.submitted_at,
+        };
+
+        env.storage().persistent().set(&key, &updated_submission);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 5184000, 5184000);
+
+        Ok(())
+    }
+
     /// Payout Participant
     pub fn payout_participant(env: Env, mission_id: u64, hunter: Address) -> Result<(), QuidError> {
         let mut mission = Self::get_mission(env.clone(), mission_id)?;
