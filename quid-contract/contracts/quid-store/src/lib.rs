@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractevent, contractimpl, contracttype, Address, Env, String};
 
 mod error;
 mod types;
@@ -31,6 +31,18 @@ pub struct MissionCancelEvent {
     pub mission_id: u64,
 }
 
+#[contracttype]
+pub struct Reward {
+    pub reward_token: Address,
+    pub reward_amount: i128,
+}
+
+#[contracttype]
+pub struct MinAsset {
+    pub min_asset_token: Option<Address>,
+    pub min_asset_amount: i128,
+}
+
 #[contractevent(topics = ["mission", "pause"], data_format = "single-value")]
 pub struct MissionPauseEvent {
     pub mission_id: u64,
@@ -47,45 +59,49 @@ impl QuidStoreContract {
         owner: Address,
         title: String,
         description_cid: String,
-        reward_token: Address,
-        reward_amount: i128,
+        reward: Reward,
         max_participants: u32,
-        min_asset: Option<Address>,
-        min_asset_amount: i128,
+        min_asset: MinAsset,
     ) -> Result<u64, QuidError> {
         owner.require_auth();
 
-        Self::validate_mission_params(&title, reward_amount)?;
+        Self::validate_mission_params(&title, reward.reward_amount)?;
 
         // Validate optional asset gating
-        if min_asset.is_some() && min_asset_amount <= 0 {
+        if min_asset.min_asset_token.is_some() && min_asset.min_asset_amount <= 0 {
             return Err(QuidError::InvalidAmount);
         }
 
-        let total_needed: i128 = reward_amount
+        let total_needed: i128 = reward
+            .reward_amount
             .checked_mul(max_participants as i128)
             .ok_or(QuidError::NegativeReward)?;
 
-        let token_client = token::Client::new(&env, &reward_token);
+        let token_client = token::Client::new(&env, &reward.reward_token);
         token_client.transfer(&owner, env.current_contract_address(), &total_needed);
 
         let mission_id = Self::get_next_mission_id(&env);
 
         let created_at = env.ledger().timestamp();
 
+        // let reward = Reward {
+        //     reward_token,
+        //     reward_amount
+        // }
+
         let mission = Mission {
             id: mission_id,
             owner: owner.clone(),
             title,
             description_cid,
-            reward_token,
-            reward_amount,
+            reward_token: reward.reward_token,
+            reward_amount: reward.reward_amount,
             max_participants,
             participants_count: 0,
             status: MissionStatus::Open,
             created_at,
-            min_asset,
-            min_asset_amount,
+            min_asset: min_asset.min_asset_token,
+            min_asset_amount: min_asset.min_asset_amount,
         };
 
         env.storage()
