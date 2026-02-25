@@ -896,3 +896,189 @@ fn test_full_lifecycle_integration() {
     // Verify the submission status was updated
     // (We can't directly access submission, but payout wouldn't work if status wasn't Pending)
 }
+
+#[test]
+fn test_set_and_get_treasury() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    let stored = client.get_treasury();
+    assert_eq!(stored, treasury);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_get_treasury_not_set() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    client.get_treasury();
+}
+
+#[test]
+fn test_slash_stake_sends_to_treasury() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    let hunter = Address::generate(&env);
+    let stake_amount: i128 = 50;
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Slash Test"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSpam"),
+        &token_address,
+        &stake_amount,
+    );
+
+    let treasury_balance_before = token_client.balance(&treasury);
+
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+
+    let treasury_balance_after = token_client.balance(&treasury);
+    assert_eq!(
+        treasury_balance_after,
+        treasury_balance_before + stake_amount
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_slash_stake_not_found() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    let hunter = Address::generate(&env);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "No Stake"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // No submission — stake doesn't exist
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_slash_stake_treasury_not_set() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "No Treasury"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSpam"),
+        &token_address,
+        &50,
+    );
+
+    // Treasury not set — should fail
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+}
+
+#[test]
+fn test_slash_stake_removes_storage_key() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Key Removal"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSpam"),
+        &token_address,
+        &50,
+    );
+
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+
+    // Slashing again should fail because the key was removed
+    let result = client.try_slash_hunter_stake(&mission_id, &hunter, &token_address);
+    assert!(result.is_err());
+}

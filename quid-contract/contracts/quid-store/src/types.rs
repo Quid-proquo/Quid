@@ -54,4 +54,5 @@ pub enum DataKey {
     MissionCount,
     Submission(u64, Address),
     HunterStake(u64, Address),
+    Treasury,
 }
