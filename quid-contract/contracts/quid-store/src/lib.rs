@@ -260,6 +260,14 @@ impl QuidStoreContract {
             &mission.reward_amount,
         );
 
+        // Refund the hunter's stake since they won
+        Self::refund_stake(
+            &env,
+            mission_id,
+            hunter.clone(),
+            mission.reward_token.clone(),
+        )?;
+
         submission.status = SubmissionStatus::Paid;
         env.storage().persistent().set(&key, &submission);
 
@@ -434,6 +442,30 @@ impl QuidStoreContract {
         );
 
         env.storage().persistent().remove(&key);
+
+        Ok(())
+    }
+
+    /// Private function
+    /// Refund a hunter's stake back to them.
+    /// Used during payout (for winners) and rejection (for honest losers).
+    fn refund_stake(
+        env: &Env,
+        mission_id: u64,
+        hunter: Address,
+        stake_token: Address,
+    ) -> Result<(), QuidError> {
+        let key = DataKey::HunterStake(mission_id, hunter.clone());
+
+        if let Some(amount) = env.storage().persistent().get::<DataKey, i128>(&key) {
+            token::Client::new(env, &stake_token).transfer(
+                &env.current_contract_address(),
+                &hunter,
+                &amount,
+            );
+
+            env.storage().persistent().remove(&key);
+        }
 
         Ok(())
     }

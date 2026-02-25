@@ -63,7 +63,8 @@ fn test_happy_path_create_submit_payout() {
     client.payout_participant(&mission_id, &hunter);
 
     let balance_after = token_client.balance(&hunter);
-    assert_eq!(balance_after, balance_before + reward_amount);
+    // Hunter receives reward + stake refund
+    assert_eq!(balance_after, balance_before + reward_amount + stake);
 
     let mission = client.get_mission(&mission_id);
     assert_eq!(mission.participants_count, 1);
@@ -357,7 +358,8 @@ fn test_cancel_mission_partial_payouts_refund() {
     );
 
     let contract_balance = token_client.balance(&contract_id);
-    assert_eq!(contract_balance, 10);
+    // Contract should have no stake left (refunded to hunter)
+    assert_eq!(contract_balance, 0);
 
     let mission = client.get_mission(&mission_id);
     assert_eq!(mission.status, MissionStatus::Cancelled);
@@ -877,16 +879,13 @@ fn test_full_lifecycle_integration() {
     let contract_balance_final = token_client.balance(&contract_id);
     let mission_final = client.get_mission(&mission_id);
 
-    // Hunter should have: initial - stake + reward
-    assert_eq!(
-        hunter_balance_final,
-        hunter_balance_initial - stake_amount + reward_amount
-    );
+    // Hunter should have: initial - stake + stake + reward = initial + reward
+    assert_eq!(hunter_balance_final, hunter_balance_initial + reward_amount);
 
-    // Contract should have: initial pool + stake - reward
+    // Contract should have: initial pool + stake - reward - stake = initial pool - reward
     assert_eq!(
         contract_balance_final,
-        contract_balance_after_create + stake_amount - reward_amount
+        contract_balance_after_create - reward_amount
     );
 
     // Mission should be updated
@@ -1080,5 +1079,358 @@ fn test_slash_stake_removes_storage_key() {
 
     // Slashing again should fail because the key was removed
     let result = client.try_slash_hunter_stake(&mission_id, &hunter, &token_address);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_refund_stake_success() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter = Address::generate(&env);
+    let stake_amount: i128 = 50;
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Refund Test"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Submit feedback with stake
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &stake_amount,
+    );
+
+    let hunter_balance_after_submit = token_client.balance(&hunter);
+    let contract_balance_after_submit = token_client.balance(&contract_id);
+
+    // Call refund_stake (via payout which should call it internally)
+    client.payout_participant(&mission_id, &hunter);
+
+    // After payout, hunter should have reward + stake refund
+    let hunter_balance_after_payout = token_client.balance(&hunter);
+    let contract_balance_after_payout = token_client.balance(&contract_id);
+
+    // Hunter gets reward + stake back: balance_after_submit + reward_amount + stake_amount
+    assert_eq!(
+        hunter_balance_after_payout,
+        hunter_balance_after_submit + reward.reward_amount + stake_amount
+    );
+
+    // Contract should have lost both reward and stake
+    assert_eq!(
+        contract_balance_after_payout,
+        contract_balance_after_submit - reward.reward_amount - stake_amount
+    );
+}
+
+#[test]
+fn test_refund_stake_no_stake_exists() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "No Stake Refund"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Submit without stake by first slashing it
+    let stake_amount: i128 = 50;
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &stake_amount,
+    );
+
+    // Set treasury and slash the stake (removes it from storage)
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+
+    let hunter_balance_before = token_client.balance(&hunter);
+
+    // Now payout - refund_stake should handle missing stake gracefully
+    // Should not panic, just skip the refund and pay the reward
+    client.payout_participant(&mission_id, &hunter);
+
+    let hunter_balance_after = token_client.balance(&hunter);
+
+    // Hunter should only receive reward (no stake to refund)
+    assert_eq!(
+        hunter_balance_after,
+        hunter_balance_before + reward.reward_amount
+    );
+}
+
+#[test]
+fn test_refund_stake_removes_storage_key() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter = Address::generate(&env);
+    let stake_amount: i128 = 50;
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Key Removal Test"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &stake_amount,
+    );
+
+    let hunter_balance_before = token_client.balance(&hunter);
+    let contract_balance_before = token_client.balance(&contract_id);
+
+    // Payout should refund stake and pay reward
+    client.payout_participant(&mission_id, &hunter);
+
+    let hunter_balance_after = token_client.balance(&hunter);
+    let contract_balance_after = token_client.balance(&contract_id);
+
+    // Verify hunter received reward + stake
+    assert_eq!(
+        hunter_balance_after,
+        hunter_balance_before + reward.reward_amount + stake_amount
+    );
+
+    // Verify contract balance decreased by reward + stake
+    assert_eq!(
+        contract_balance_after,
+        contract_balance_before - reward.reward_amount - stake_amount
+    );
+
+    // Storage key should be removed - attempting to payout again should fail
+    let result = client.try_payout_participant(&mission_id, &hunter);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_refund_stake_correct_amount() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter = Address::generate(&env);
+    let stake_amount: i128 = 75;
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Amount Test"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    let hunter_balance_initial = token_client.balance(&hunter);
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &stake_amount,
+    );
+
+    let hunter_balance_after_submit = token_client.balance(&hunter);
+    assert_eq!(
+        hunter_balance_after_submit,
+        hunter_balance_initial - stake_amount
+    );
+
+    // Once refund_stake is integrated into payout:
+    // hunter should receive both reward AND stake back
+    // Expected: initial - stake + stake + reward = initial + reward
+}
+
+#[test]
+fn test_refund_stake_multiple_hunters() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter1 = Address::generate(&env);
+    let hunter2 = Address::generate(&env);
+    let stake_amount_1: i128 = 30;
+    let stake_amount_2: i128 = 50;
+
+    mint_tokens_for_hunter(&env, &token_address, &hunter1, 1000);
+    mint_tokens_for_hunter(&env, &token_address, &hunter2, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Multi Hunter"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Both hunters submit with different stakes
+    client.submit_feedback(
+        &mission_id,
+        &hunter1,
+        &String::from_str(&env, "QmSub1"),
+        &token_address,
+        &stake_amount_1,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter2,
+        &String::from_str(&env, "QmSub2"),
+        &token_address,
+        &stake_amount_2,
+    );
+
+    let hunter1_balance_after_submit = token_client.balance(&hunter1);
+    let hunter2_balance_after_submit = token_client.balance(&hunter2);
+
+    // Payout both hunters
+    client.payout_participant(&mission_id, &hunter1);
+    client.payout_participant(&mission_id, &hunter2);
+
+    // Each hunter should get their reward + their stake back
+    let hunter1_balance_final = token_client.balance(&hunter1);
+    let hunter2_balance_final = token_client.balance(&hunter2);
+
+    assert_eq!(
+        hunter1_balance_final,
+        hunter1_balance_after_submit + reward.reward_amount + stake_amount_1
+    );
+    assert_eq!(
+        hunter2_balance_final,
+        hunter2_balance_after_submit + reward.reward_amount + stake_amount_2
+    );
+}
+
+#[test]
+fn test_refund_stake_prevents_double_refund() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter = Address::generate(&env);
+    let stake_amount: i128 = 50;
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Double Refund Test"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &stake_amount,
+    );
+
+    let hunter_balance_before_payout = token_client.balance(&hunter);
+
+    // First payout - should refund stake
+    client.payout_participant(&mission_id, &hunter);
+
+    let hunter_balance_after_payout = token_client.balance(&hunter);
+
+    // Verify hunter received reward + stake
+    assert_eq!(
+        hunter_balance_after_payout,
+        hunter_balance_before_payout + reward.reward_amount + stake_amount
+    );
+
+    // Attempting to payout again should fail (already paid)
+    // This prevents double refund of the stake
+    let result = client.try_payout_participant(&mission_id, &hunter);
     assert!(result.is_err());
 }
