@@ -15,4 +15,5 @@ pub enum QuidError {
     MissionNotOpen = 10,
     SubmissionNotFound = 11,
     NotPending = 12,
+    InvalidAmount = 13,
 }

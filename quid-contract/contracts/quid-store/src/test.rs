@@ -36,6 +36,8 @@ fn test_happy_path_create_submit_payout() {
         &token_address,
         &reward,
         &5,
+        &None,
+        &0,
     );
 
     let cid = String::from_str(&env, "QmSubmission");
@@ -65,6 +67,8 @@ fn test_prevent_double_submission() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
 
     let cid = String::from_str(&env, "QmFirst");
@@ -89,6 +93,8 @@ fn test_cancel_mission_refund() {
         &token_address,
         &reward,
         &slots,
+        &None,
+        &0,
     );
 
     let contract_balance = token_client.balance(&contract_id);
@@ -116,6 +122,8 @@ fn test_mission_capacity_limit() {
         &token_address,
         &100,
         &1,
+        &None,
+        &0,
     );
 
     let hunter1 = Address::generate(&env);
@@ -143,6 +151,8 @@ fn test_cannot_payout_twice() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
 
     client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "Qm"));
@@ -179,6 +189,8 @@ fn test_create_mission_negative_reward() {
         &token_address,
         &0,
         &5,
+        &None,
+        &0,
     );
 }
 
@@ -196,6 +208,8 @@ fn test_submit_feedback_when_paused() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
     client.pause_mission(&mission_id);
     client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "Qm"));
@@ -217,6 +231,8 @@ fn test_cancel_mission_partial_payouts_refund() {
         &token_address,
         &reward,
         &slots,
+        &None,
+        &0,
     );
 
     let hunter = Address::generate(&env);
@@ -254,6 +270,8 @@ fn test_payout_without_submission() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
     client.payout_participant(&mission_id, &hunter);
 }
@@ -271,6 +289,8 @@ fn test_update_submission_success() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
 
     let original_cid = String::from_str(&env, "QmOriginal");
@@ -297,6 +317,8 @@ fn test_update_submission_after_payout() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
 
     client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmFirst"));
@@ -320,6 +342,8 @@ fn test_update_submission_not_found() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
 
     // Try to update without submitting first
@@ -340,6 +364,8 @@ fn test_update_submission_mission_not_open() {
         &token_address,
         &100,
         &5,
+        &None,
+        &0,
     );
 
     client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmFirst"));
@@ -347,4 +373,89 @@ fn test_update_submission_mission_not_open() {
 
     // Should fail: mission is paused
     client.update_submission(&mission_id, &hunter, &String::from_str(&env, "QmNew"));
+}
+
+#[test]
+fn test_create_mission_with_asset_gating() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let gating_token = Address::generate(&env);
+    let min_amount: i128 = 1000;
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+        &Some(gating_token.clone()),
+        &min_amount,
+    );
+
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.min_asset, Some(gating_token));
+    assert_eq!(mission.min_asset_amount, min_amount);
+}
+
+#[test]
+fn test_create_mission_without_asset_gating() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "No Gate"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+        &None,
+        &0,
+    );
+
+    let mission = client.get_mission(&mission_id);
+    assert_eq!(mission.min_asset, None);
+    assert_eq!(mission.min_asset_amount, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_create_mission_with_zero_asset_amount() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let gating_token = Address::generate(&env);
+
+    let _ = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Invalid Gate"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+        &Some(gating_token),
+        &0,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_create_mission_with_negative_asset_amount() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let gating_token = Address::generate(&env);
+
+    let _ = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Negative Gate"),
+        &String::from_str(&env, "QmDesc"),
+        &token_address,
+        &100,
+        &5,
+        &Some(gating_token),
+        &-100,
+    );
 }

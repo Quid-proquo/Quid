@@ -50,10 +50,17 @@ impl QuidStoreContract {
         reward_token: Address,
         reward_amount: i128,
         max_participants: u32,
+        min_asset: Option<Address>,
+        min_asset_amount: i128,
     ) -> Result<u64, QuidError> {
         owner.require_auth();
 
         Self::validate_mission_params(&title, reward_amount)?;
+
+        // Validate optional asset gating
+        if min_asset.is_some() && min_asset_amount <= 0 {
+            return Err(QuidError::InvalidAmount);
+        }
 
         let total_needed: i128 = reward_amount
             .checked_mul(max_participants as i128)
@@ -77,6 +84,8 @@ impl QuidStoreContract {
             participants_count: 0,
             status: MissionStatus::Open,
             created_at,
+            min_asset,
+            min_asset_amount,
         };
 
         env.storage()
