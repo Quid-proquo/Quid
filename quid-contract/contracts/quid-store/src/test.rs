@@ -159,7 +159,13 @@ fn test_cannot_payout_twice() {
         &5,
     );
 
-    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "Qm"), &token_address, &10);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "Qm"),
+        &token_address,
+        &10,
+    );
     client.payout_participant(&mission_id, &hunter);
     client.payout_participant(&mission_id, &hunter);
 }
@@ -179,7 +185,13 @@ fn test_submit_feedback_mission_not_found() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
     let hunter = Address::generate(&env);
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
-    client.submit_feedback(&999, &hunter, &String::from_str(&env, "Qm"), &token_address, &10);
+    client.submit_feedback(
+        &999,
+        &hunter,
+        &String::from_str(&env, "Qm"),
+        &token_address,
+        &10,
+    );
 }
 
 #[test]
@@ -215,7 +227,13 @@ fn test_submit_feedback_when_paused() {
         &5,
     );
     client.pause_mission(&mission_id);
-    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "Qm"), &token_address, &10);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "Qm"),
+        &token_address,
+        &10,
+    );
 }
 
 #[test]
@@ -238,7 +256,13 @@ fn test_cancel_mission_partial_payouts_refund() {
 
     let hunter = Address::generate(&env);
     mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
-    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmSub"), &token_address, &10);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSub"),
+        &token_address,
+        &10,
+    );
     client.payout_participant(&mission_id, &hunter);
 
     let owner_balance_before_cancel = token_client.balance(&owner);
@@ -415,7 +439,13 @@ fn test_update_submission_after_payout() {
         &5,
     );
 
-    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmFirst"), &token_address, &10);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmFirst"),
+        &token_address,
+        &10,
+    );
     client.payout_participant(&mission_id, &hunter);
 
     // Should fail: already paid
@@ -460,7 +490,13 @@ fn test_update_submission_mission_not_open() {
         &5,
     );
 
-    client.submit_feedback(&mission_id, &hunter, &String::from_str(&env, "QmFirst"), &token_address, &10);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmFirst"),
+        &token_address,
+        &10,
+    );
     client.pause_mission(&mission_id);
 
     // Should fail: mission is paused
