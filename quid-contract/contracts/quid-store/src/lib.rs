@@ -1,13 +1,41 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
 mod types;
+
 use error::QuidError;
 use soroban_sdk::token;
-use types::{DataKey, Mission, MissionStatus, SubmissionStatus};
+use types::{DataKey, Mission, MissionStatus, Submission, SubmissionStatus};
 
-/// Quid Store Contract
+#[contractevent(topics = ["mission", "create"])]
+pub struct MissionCreateEvent {
+    pub mission_id: u64,
+    pub owner: Address,
+}
+
+#[contractevent(topics = ["sub", "new"])]
+pub struct SubNewEvent {
+    pub mission_id: u64,
+    pub hunter: Address,
+}
+
+#[contractevent(topics = ["payout", "done"])]
+pub struct PayoutDoneEvent {
+    pub mission_id: u64,
+    pub hunter: Address,
+}
+
+#[contractevent(topics = ["mission", "cancel"], data_format = "single-value")]
+pub struct MissionCancelEvent {
+    pub mission_id: u64,
+}
+
+#[contractevent(topics = ["mission", "pause"], data_format = "single-value")]
+pub struct MissionPauseEvent {
+    pub mission_id: u64,
+}
+
 #[contract]
 pub struct QuidStoreContract;
 
@@ -36,10 +64,7 @@ impl QuidStoreContract {
 
         let mission_id = Self::get_next_mission_id(&env);
 
-        let mut created_at = env.ledger().timestamp();
-        if created_at == 0 {
-            created_at = 1;
-        }
+        let created_at = env.ledger().timestamp();
 
         let mission = Mission {
             id: mission_id,
@@ -50,7 +75,7 @@ impl QuidStoreContract {
             reward_amount,
             max_participants,
             participants_count: 0,
-            status: MissionStatus::Created,
+            status: MissionStatus::Open,
             created_at,
         };
 
@@ -62,11 +87,7 @@ impl QuidStoreContract {
             .persistent()
             .extend_ttl(&DataKey::Mission(mission_id), 5184000, 5184000);
 
-        #[allow(deprecated)]
-        env.events().publish(
-            (String::from_str(&env, "mission_created"), owner.clone()),
-            mission_id,
-        );
+        MissionCreateEvent { mission_id, owner }.publish(&env);
 
         Ok(mission_id)
     }
@@ -79,40 +100,98 @@ impl QuidStoreContract {
             .ok_or(QuidError::MissionNotFound)
     }
 
-    /// Batch missions
-    pub fn get_missions(env: Env, mission_ids: Vec<u64>) -> Vec<Result<Mission, QuidError>> {
-        let mut results = Vec::new(&env);
+    /// Submit Feedback
+    pub fn submit_feedback(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        ipfs_cid: String,
+    ) -> Result<(), QuidError> {
+        hunter.require_auth();
 
-        for mission_id in mission_ids.iter() {
-            results.push_back(Self::get_mission(env.clone(), mission_id));
+        let mission = Self::get_mission(env.clone(), mission_id)?;
+
+        if mission.status != MissionStatus::Open && mission.status != MissionStatus::Started {
+            return Err(QuidError::MissionNotOpen);
+        }
+        if mission.participants_count >= mission.max_participants {
+            return Err(QuidError::MissionFull);
         }
 
-        results
-    }
+        let key = DataKey::Submission(mission_id, hunter.clone());
 
-    /// Exists check
-    pub fn mission_exists(env: Env, mission_id: u64) -> bool {
+        if env.storage().persistent().has(&key) {
+            return Err(QuidError::AlreadySubmitted);
+        }
+
+        let submission = Submission {
+            hunter: hunter.clone(),
+            ipfs_cid,
+            status: SubmissionStatus::Pending,
+            submitted_at: env.ledger().timestamp(),
+        };
+
+        env.storage().persistent().set(&key, &submission);
         env.storage()
             .persistent()
-            .has(&DataKey::Mission(mission_id))
+            .extend_ttl(&key, 5184000, 5184000);
+
+        SubNewEvent { mission_id, hunter }.publish(&env);
+
+        Ok(())
     }
 
-    /// Reward only
-    pub fn get_mission_reward(env: Env, mission_id: u64) -> Result<(Address, i128), QuidError> {
-        let mission = Self::get_mission(env, mission_id)?;
-        Ok((mission.reward_token, mission.reward_amount))
+    /// Payout Participant
+    pub fn payout_participant(env: Env, mission_id: u64, hunter: Address) -> Result<(), QuidError> {
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+
+        if matches!(
+            mission.status,
+            MissionStatus::Completed | MissionStatus::Cancelled
+        ) {
+            return Err(QuidError::MissionClosed);
+        }
+
+        let key = DataKey::Submission(mission_id, hunter.clone());
+        let mut submission: Submission = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(QuidError::SubmissionNotFound)?;
+
+        if submission.status == SubmissionStatus::Paid {
+            return Err(QuidError::AlreadyPaid);
+        }
+        if submission.status != SubmissionStatus::Pending {
+            return Err(QuidError::NotPending);
+        }
+
+        let token_client = token::Client::new(&env, &mission.reward_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &hunter,
+            &mission.reward_amount,
+        );
+
+        submission.status = SubmissionStatus::Paid;
+        env.storage().persistent().set(&key, &submission);
+
+        mission.participants_count += 1;
+        if mission.max_participants > 0 && mission.participants_count >= mission.max_participants {
+            mission.status = MissionStatus::Completed;
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+
+        PayoutDoneEvent { mission_id, hunter }.publish(&env);
+
+        Ok(())
     }
 
-    /// Status only
-    pub fn get_mission_status(env: Env, mission_id: u64) -> Result<MissionStatus, QuidError> {
-        let mission = Self::get_mission(env, mission_id)?;
-        Ok(mission.status)
-    }
-
-    /// Cancel mission
     pub fn cancel_mission(env: Env, mission_id: u64) -> Result<(), QuidError> {
         let mut mission = Self::get_mission(env.clone(), mission_id)?;
-
         mission.owner.require_auth();
 
         if matches!(
@@ -125,7 +204,6 @@ impl QuidStoreContract {
         let remaining_slots = mission
             .max_participants
             .saturating_sub(mission.participants_count);
-
         let refund_amount: i128 = (remaining_slots as i128)
             .checked_mul(mission.reward_amount)
             .ok_or(QuidError::NegativeReward)?;
@@ -140,21 +218,41 @@ impl QuidStoreContract {
         }
 
         mission.status = MissionStatus::Cancelled;
-
         env.storage()
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
 
-        #[allow(deprecated)]
-        env.events().publish(
-            (String::from_str(&env, "mission_cancelled"), mission_id),
-            refund_amount,
-        );
+        MissionCancelEvent { mission_id }.publish(&env);
 
         Ok(())
     }
 
-    /// Mission count
+    pub fn pause_mission(env: Env, id: u64) -> Result<(), QuidError> {
+        let mut mission = Self::get_mission(env.clone(), id)?;
+        mission.owner.require_auth();
+        mission.status = MissionStatus::Paused;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(id), &mission);
+
+        MissionPauseEvent { mission_id: id }.publish(&env);
+        Ok(())
+    }
+
+    pub fn update_mission_status(
+        env: Env,
+        mission_id: u64,
+        new_status: MissionStatus,
+    ) -> Result<(), QuidError> {
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+        mission.status = new_status;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+        Ok(())
+    }
+
     pub fn get_mission_count(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -162,97 +260,11 @@ impl QuidStoreContract {
             .unwrap_or(0)
     }
 
-    /// Update status
-    pub fn update_mission_status(
-        env: Env,
-        mission_id: u64,
-        new_status: MissionStatus,
-    ) -> Result<(), QuidError> {
-        let mut mission = Self::get_mission(env.clone(), mission_id)?;
-
-        mission.owner.require_auth();
-        mission.status = new_status;
-
+    pub fn mission_exists(env: Env, mission_id: u64) -> bool {
         env.storage()
             .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
-
-        #[allow(deprecated)]
-        env.events().publish(
-            (String::from_str(&env, "mission_status_updated"), mission_id),
-            new_status,
-        );
-
-        Ok(())
+            .has(&DataKey::Mission(mission_id))
     }
-
-    // ---------- Helpers ----------
-    /// Pauses an open mission
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `id` - The mission identifier
-    ///
-    /// # Errors
-    /// * `QuidError::MissionNotFound` - If mission doesn't exist
-    /// * `QuidError::NotAuthorized` - If caller is not the owner
-    pub fn pause_mission(env: Env, id: u64) -> Result<(), QuidError> {
-        // 1. Load Mission
-        let mut mission = Self::get_mission(env.clone(), id)?;
-
-        // 2. Authenticate Owner
-        mission.owner.require_auth();
-
-        // 3. Update State
-        mission.status = MissionStatus::Paused;
-
-        // 4. Save to Storage
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(id), &mission);
-
-        // Emit event for monitoring
-        #[allow(deprecated)]
-        env.events().publish(
-            (String::from_str(&env, "mission_paused"), id),
-            MissionStatus::Paused,
-        );
-
-        Ok(())
-    }
-
-    pub fn submit_feedback(
-        env: Env,
-        mission_id: u64,
-        hunter: Address,
-        ipfs_cid: String,
-    ) -> Result<(), QuidError> {
-        hunter.require_auth();
-
-        let mut mission = Self::get_mission(env.clone(), mission_id)?;
-
-        if mission.status != MissionStatus::Open {
-            return Err(QuidError::MissionNotOpen);
-        }
-
-        if mission.participants_count >= mission.max_participants {
-            return Err(QuidError::MissionFull);
-        }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Submission(mission_id, hunter.clone()), &ipfs_cid);
-
-        // Increment count so subsequent submissions respect the cap.
-        mission.participants_count += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
-
-        Ok(())
-    }
-
-    // ========== Private Helper Methods ==========
 
     fn validate_mission_params(_title: &String, reward_amount: i128) -> Result<(), QuidError> {
         if reward_amount <= 0 {
@@ -267,78 +279,9 @@ impl QuidStoreContract {
             .instance()
             .get(&DataKey::MissionCount)
             .unwrap_or(0);
-
-        count = count.checked_add(1).expect("Mission count overflow");
-
+        count += 1;
         env.storage().instance().set(&DataKey::MissionCount, &count);
-
         count
     }
-
-    pub fn payout_participant(env: Env, mission_id: u64, hunter: Address) -> Result<(), QuidError> {
-        // 1. Load Mission & Authenticate
-        let mut mission = Self::get_mission(env.clone(), mission_id)?;
-        mission.owner.require_auth();
-
-        // 2. Validate Submission
-        // Validation: Submission must be Pending. Mission must be Open.
-        if matches!(
-            mission.status,
-            MissionStatus::Completed | MissionStatus::Cancelled | MissionStatus::Paused
-        ) {
-            return Err(QuidError::MissionClosed);
-        }
-
-        let submission_key = DataKey::Submission(mission_id, hunter.clone());
-        let submission_status: SubmissionStatus = env
-            .storage()
-            .persistent()
-            .get(&submission_key)
-            .ok_or(QuidError::SubmissionNotFound)?;
-
-        if submission_status == SubmissionStatus::Paid {
-            return Err(QuidError::AlreadyPaid);
-        }
-
-        if submission_status != SubmissionStatus::Pending {
-            return Err(QuidError::NotPending);
-        }
-
-        let paid_key = DataKey::Paid(mission_id, hunter.clone());
-        if env.storage().persistent().has(&paid_key) {
-            return Err(QuidError::AlreadyPaid);
-        }
-
-        // 3. Execute Payout
-        let token_client = token::Client::new(&env, &mission.reward_token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &hunter,
-            &mission.reward_amount,
-        );
-
-        // 4. Update States
-        mission.participants_count += 1;
-        if mission.max_participants > 0 && mission.participants_count >= mission.max_participants {
-            mission.status = MissionStatus::Completed;
-        }
-
-        env.storage().persistent().set(&paid_key, &true);
-        env.storage()
-            .persistent()
-            .set(&submission_key, &SubmissionStatus::Paid);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
-
-        #[allow(deprecated)]
-        env.events().publish(
-            (String::from_str(&env, "payout"), mission_id, hunter),
-            mission.reward_amount,
-        );
-
-        Ok(())
-    }
 }
-
 mod test;

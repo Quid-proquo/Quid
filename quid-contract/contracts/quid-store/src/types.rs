@@ -12,6 +12,16 @@ pub enum MissionStatus {
     Cancelled,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Copy)]
+#[contracttype]
+pub enum SubmissionStatus {
+    #[default]
+    Pending,
+    Approved,
+    Paid,
+    Rejected,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Mission {
@@ -27,14 +37,13 @@ pub struct Mission {
     pub created_at: u64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Copy)]
 #[contracttype]
-pub enum SubmissionStatus {
-    #[default]
-    Pending,
-    Approved,
-    Paid,
-    Rejected,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Submission {
+    pub hunter: Address,
+    pub ipfs_cid: String,
+    pub status: SubmissionStatus,
+    pub submitted_at: u64,
 }
 
 #[contracttype]
@@ -42,5 +51,4 @@ pub enum DataKey {
     Mission(u64),
     MissionCount,
     Submission(u64, Address),
-    Paid(u64, Address),
 }
