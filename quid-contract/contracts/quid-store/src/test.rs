@@ -1434,3 +1434,310 @@ fn test_refund_stake_prevents_double_refund() {
     let result = client.try_payout_participant(&mission_id, &hunter);
     assert!(result.is_err());
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_asset_gating_insufficient_balance() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // Create a gating token
+    let gating_token_admin = Address::generate(&env);
+    let gating_token_contract = env.register_stellar_asset_contract_v2(gating_token_admin.clone());
+    let gating_token_address = gating_token_contract.address();
+
+    let hunter = Address::generate(&env);
+    let min_asset_amount: i128 = 1000;
+
+    // Hunter has NO balance of the gating token
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000); // Only stake tokens
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token_address.clone()),
+        min_asset_amount,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Should fail: hunter has 0 balance of gating token
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &10,
+    );
+}
+
+#[test]
+fn test_asset_gating_sufficient_balance() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // Create a gating token
+    let gating_token_admin = Address::generate(&env);
+    let gating_token_contract = env.register_stellar_asset_contract_v2(gating_token_admin.clone());
+    let gating_token_address = gating_token_contract.address();
+
+    let hunter = Address::generate(&env);
+    let min_asset_amount: i128 = 1000;
+
+    // Mint gating tokens to hunter
+    let gating_token_admin_client = StellarAssetClient::new(&env, &gating_token_address);
+    gating_token_admin_client.mint(&hunter, &min_asset_amount);
+
+    // Also mint stake tokens
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token_address.clone()),
+        min_asset_amount,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Should succeed: hunter has exactly the required balance
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &10,
+    );
+
+    // Verify submission was created
+    client.payout_participant(&mission_id, &hunter);
+}
+
+#[test]
+fn test_asset_gating_more_than_required() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // Create a gating token
+    let gating_token_admin = Address::generate(&env);
+    let gating_token_contract = env.register_stellar_asset_contract_v2(gating_token_admin.clone());
+    let gating_token_address = gating_token_contract.address();
+
+    let hunter = Address::generate(&env);
+    let min_asset_amount: i128 = 1000;
+
+    // Mint MORE than required gating tokens to hunter
+    let gating_token_admin_client = StellarAssetClient::new(&env, &gating_token_address);
+    gating_token_admin_client.mint(&hunter, &5000);
+
+    // Also mint stake tokens
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token_address.clone()),
+        min_asset_amount,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Should succeed: hunter has more than required balance
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &10,
+    );
+
+    // Verify submission was created
+    client.payout_participant(&mission_id, &hunter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_asset_gating_just_below_required() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // Create a gating token
+    let gating_token_admin = Address::generate(&env);
+    let gating_token_contract = env.register_stellar_asset_contract_v2(gating_token_admin.clone());
+    let gating_token_address = gating_token_contract.address();
+
+    let hunter = Address::generate(&env);
+    let min_asset_amount: i128 = 1000;
+
+    // Mint LESS than required gating tokens to hunter
+    let gating_token_admin_client = StellarAssetClient::new(&env, &gating_token_address);
+    gating_token_admin_client.mint(&hunter, &999); // Just 1 below required
+
+    // Also mint stake tokens
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token_address.clone()),
+        min_asset_amount,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Should fail: hunter has 999 but needs 1000
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &10,
+    );
+}
+
+#[test]
+fn test_no_asset_gating_allows_any_hunter() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+
+    // Hunter only has stake tokens, no gating token
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    // No asset gating
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Open Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Should succeed: no gating requirement
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &10,
+    );
+
+    // Verify submission was created
+    client.payout_participant(&mission_id, &hunter);
+}
+
+#[test]
+fn test_asset_gating_multiple_hunters_different_balances() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // Create a gating token
+    let gating_token_admin = Address::generate(&env);
+    let gating_token_contract = env.register_stellar_asset_contract_v2(gating_token_admin.clone());
+    let gating_token_address = gating_token_contract.address();
+
+    let hunter1 = Address::generate(&env);
+    let hunter2 = Address::generate(&env);
+    let min_asset_amount: i128 = 1000;
+
+    // Hunter1 has sufficient balance
+    let gating_token_admin_client = StellarAssetClient::new(&env, &gating_token_address);
+    gating_token_admin_client.mint(&hunter1, &2000);
+    mint_tokens_for_hunter(&env, &token_address, &hunter1, 1000);
+
+    // Hunter2 has sufficient balance (exactly minimum)
+    gating_token_admin_client.mint(&hunter2, &1000);
+    mint_tokens_for_hunter(&env, &token_address, &hunter2, 1000);
+
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+
+    let min_asset = MinAsset {
+        min_asset_token: Some(gating_token_address.clone()),
+        min_asset_amount,
+    };
+
+    let mission_id = client.create_mission(
+        &owner,
+        &String::from_str(&env, "Gated Mission"),
+        &String::from_str(&env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+    );
+
+    // Both hunters should succeed
+    client.submit_feedback(
+        &mission_id,
+        &hunter1,
+        &String::from_str(&env, "QmSubmission1"),
+        &token_address,
+        &10,
+    );
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter2,
+        &String::from_str(&env, "QmSubmission2"),
+        &token_address,
+        &10,
+    );
+
+    // Verify both submissions were created
+    client.payout_participant(&mission_id, &hunter1);
+    client.payout_participant(&mission_id, &hunter2);
+}
