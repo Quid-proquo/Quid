@@ -145,6 +145,15 @@ impl QuidStoreContract {
             return Err(QuidError::MissionFull);
         }
 
+        // Check asset gating requirement
+        if let Some(asset_address) = &mission.min_asset {
+            let asset_client = token::Client::new(&env, asset_address);
+            let current_balance = asset_client.balance(&hunter);
+            if current_balance < mission.min_asset_amount {
+                return Err(QuidError::InsufficientAssetBalance);
+            }
+        }
+
         let key = DataKey::Submission(mission_id, hunter.clone());
 
         if env.storage().persistent().has(&key) {
