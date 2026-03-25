@@ -6,12 +6,14 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
-  imports: [PrismaModule],
   imports: [
+    PrismaModule,
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
     }),
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
