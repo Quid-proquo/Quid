@@ -12,8 +12,102 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum MissionStatus {
+  OPEN
+  STARTED
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
 model User {
-  id       Int     @id @default(autoincrement())
-  email    String  @unique
-  fullName String? @map("full_name")
+  id          String     @id @default(uuid()) @map("id") // UUID primary key 
+  address     String     @unique @map("address") // Stellar wallet address -> unique
+  email       String?    @unique @map("email") // Optional, but unique if it is provided
+  displayName String?    @map("display_name")
+  bio         String?    @map("bio") // Optional too
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  missions    Mission[] // one-to-many, since users can have many missions.
+  submissions Submission[]
+  missionDrafts MissionDraft[]
+
+  @@map("users")
+}
+
+
+
+model Mission {
+  id                String    @id @default(uuid()) @map("id")
+  ownerAddress      String    @map("owner_address")
+  title             String    @map("title")
+  descriptionCid    String    @map("description_cid")
+  metadataCid       String    @map("metadata_cid")
+  metadata          Json      @map("metadata")
+  rewardToken       String    @map("reward_token")
+  rewardAmount      String    @map("reward_amount")
+  maxParticipants   Int       @default(0) @map("max_participants")
+  participantsCount Int       @default(0) @map("participants_count")
+  status            String    @map("status")
+  aiSummary         String    @map("ai_summary")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  owner             User      @relation(fields: [ownerAddress], references: [address])
+  submissions       Submission[]
+  
+
+  @@index([ownerAddress])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("missions")
+}
+
+model MissionDraft {
+  id           String   @id @default(uuid()) @map("id")
+  ownerAddress String   @map("owner_address")
+  title        String   @map("title")
+  data         Json     @map("data")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  owner User @relation(fields: [ownerAddress], references: [address])
+
+  @@index([ownerAddress, updatedAt])
+  @@map("mission_drafts")
+}
+model Submission {
+  id            String           @id @default(uuid()) @map("id")
+  missionId     String           @map("mission_id")
+  hunterAddress String           @map("hunter_address")
+  ipfsCid       String           @map("ipfs_cid")
+  textPayload   String?          @map("text_payload")
+  sentiment     Float?           @map("sentiment")
+  status        SubmissionStatus @default(PENDING) @map("status")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  mission Mission @relation(fields: [missionId], references: [id])
+  hunter  User    @relation(fields: [hunterAddress], references: [address])
+
+  @@unique([missionId, hunterAddress])
+  @@index([hunterAddress])
+  @@index([missionId])
+  @@map("submissions")
+}
+
+model IndexerState {
+  id         Int      @id @default(1) @map("id")
+  lastLedger BigInt   @map("last_ledger")
+  lastCursor String?  @map("last_cursor")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("indexer_state")
 }
