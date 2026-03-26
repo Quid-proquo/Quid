@@ -7,10 +7,10 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   async onModuleInit() {
-    await this.$connect();
+    await (this as PrismaClient).$connect();
   }
 
   async onModuleDestroy() {
-    await this.$disconnect();
+    await (this as PrismaClient).$disconnect();
   }
 }
