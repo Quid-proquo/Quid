@@ -1,29 +1,27 @@
 import { Injectable } from '@nestjs/common';
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const { PassportStrategy } = require('@nestjs/passport');
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const { ExtractJwt, Strategy } = require('passport-jwt');
 import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
 
-export interface JwtPayload {
-  email: string;
-  sub: number;
+interface JwtPayload {
+  sub: string;
+  iat: number;
+  exp: number;
 }
 
 @Injectable()
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private configService: ConfigService) {
+  constructor(configService: ConfigService) {
     const secret = configService.getOrThrow<string>('JWT_SECRET');
-    
+
     super({
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
       secretOrKey: secret,
     });
   }
 
-  async validate(payload: JwtPayload) {
-    return { userId: payload.sub, email: payload.email };
+  validate(payload: JwtPayload) {
+    return { sub: payload.sub };
   }
 }
