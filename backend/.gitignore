@@ -11,9 +11,9 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
-yarn.lock
-pnpm-lock.yaml
-package-lock.json
+# Keep yarn.lock and pnpm-lock.yaml, but ignore package-lock.json for now
+# yarn.lock
+# pnpm-lock.yaml
 
 # OS
 .DS_Store
