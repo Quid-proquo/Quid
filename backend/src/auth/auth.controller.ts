@@ -9,15 +9,11 @@ export class AuthController {
 
   @Get('challenge')
   getChallenge(@Query() query: ChallengeQueryDto) {
-    // The auth service would handle Stellar-specific logic here
-    // return this.authService.generateChallenge(query.address);
-    return { address: query.address };
+    return this.authService.generateChallenge(query.address);
   }
 
   @Post('verify')
   verifySignature(@Body() body: VerifySignatureDto) {
-    // The auth service would handle Stellar-specific logic here
-    // return this.authService.verifySignature(body.signedXdr);
-    return { message: 'Signed XDR received', signedXdr: body.signedXdr };
+    return this.authService.verifySignature(body.signedXdr);
   }
 }
