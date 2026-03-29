@@ -1,8 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
-import { AuthService } from './auth.service';
+import { AuthService } from './auth.service.js';
 import { WebAuth } from '@stellar/stellar-sdk';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 jest.mock('@stellar/stellar-sdk', () => ({
   WebAuth: {
@@ -18,6 +19,10 @@ describe('AuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        {
+          provide: PrismaService,
+          useValue: {},
+        },
         {
           provide: ConfigService,
           useValue: {
@@ -35,11 +40,6 @@ describe('AuthService', () => {
                   return undefined;
               }
             },
-          },
-        },
-      ],
-    }).compile();
-
     service = module.get(AuthService);
   });
 

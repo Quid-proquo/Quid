@@ -5,13 +5,27 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { WebAuth, Keypair } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  Networks,
+  Operation,
+  StrKey,
+  Transaction,
+  WebAuth,
+} from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service.js';
 
-interface AuthConfig {
-  serverKeypair: Keypair;
+const CHALLENGE_TIMEOUT = 300;
+
+export interface ChallengeResponse {
+  address: string;
+  transaction: string;
+  homeDomain: string;
   webAuthDomain: string;
   networkPassphrase: string;
+  nonce: string;
+  issuedAt: number;
+  expiresIn: number;
 }
 
 @Injectable()
@@ -111,85 +125,59 @@ export class AuthService {
     }
   }
 
-  private loadAuthConfig(): AuthConfig {
-    const serverPrivateKey = this.config.get<string>('SERVER_PRIVATE_KEY');
-    if (!serverPrivateKey) {
-      throw new InternalServerErrorException(
-        'Missing required env var: SERVER_PRIVATE_KEY',
-      );
+  generateChallenge(address: string): ChallengeResponse {
+    if (!StrKey.isValidEd25519PublicKey(address)) {
+      throw new BadRequestException('Invalid Stellar public key');
     }
 
-    const webAuthDomain = this.config.get<string>('STELLAR_WEB_AUTH_DOMAIN');
-    if (!webAuthDomain) {
-      throw new InternalServerErrorException(
-        'Missing required env var: STELLAR_WEB_AUTH_DOMAIN',
-      );
-    }
-
-    const networkPassphrase = this.config.get<string>(
-      'STELLAR_NETWORK_PASSPHRASE',
+    const serverSecret = this.config.getOrThrow<string>(
+      'STELLAR_SERVER_SECRET',
     );
-    if (!networkPassphrase) {
-      throw new InternalServerErrorException(
-        'Missing required env var: STELLAR_NETWORK_PASSPHRASE',
-      );
-    }
+    const serverKeypair = Keypair.fromSecret(serverSecret);
 
-    const serverKeypair = this.parseServerKeypair(serverPrivateKey);
+    const homeDomain = this.config.getOrThrow<string>('HOME_DOMAIN');
+    const webAuthDomain = this.config.getOrThrow<string>('WEB_AUTH_DOMAIN');
+    const networkPassphrase = this.config.get<string>(
+      'STELLAR_NETWORK',
+      Networks.TESTNET,
+    );
 
-    return { serverKeypair, webAuthDomain, networkPassphrase };
-  }
+    const issuedAt = Math.floor(Date.now() / 1000);
 
-  private parseServerKeypair(secretKey: string): Keypair {
-    try {
-      return Keypair.fromSecret(secretKey);
-    } catch {
-      throw new InternalServerErrorException(
-        'Invalid SERVER_PRIVATE_KEY: must be a valid Stellar secret key',
-      );
-    }
-  }
+    const transaction = WebAuth.buildChallengeTx(
+      serverKeypair,
+      address,
+      homeDomain,
+      CHALLENGE_TIMEOUT,
+      networkPassphrase,
+      webAuthDomain,
+    );
 
-  private normalizeVerifyError(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return 'Signature verification failed';
-  }
+    const tx = new Transaction(transaction, networkPassphrase);
+    const manageDataOp = tx.operations[0] as Operation.ManageData;
+    const nonce = manageDataOp.value?.toString('base64') ?? '';
 
-  generateChallenge(address: string): {
-    transaction: string;
-    networkPassphrase: string;
-  } {
-    const { serverKeypair, webAuthDomain, networkPassphrase } =
-      this.loadAuthConfig();
-
-    // Placeholder: real SEP-10 challenge generation (BE-022/BE-023) will
-    // use serverKeypair, webAuthDomain, and networkPassphrase to build the XDR.
-    void serverKeypair;
-    void webAuthDomain;
-    void address;
-
-    return { transaction: '', networkPassphrase };
+    return {
+      address,
+      transaction,
+      homeDomain,
+      webAuthDomain,
+      networkPassphrase,
+      nonce,
+      issuedAt,
+      expiresIn: CHALLENGE_TIMEOUT,
+    };
   }
 
   verifySignature(signedXdr: string): { token: string } {
-    const { networkPassphrase } = this.loadAuthConfig();
-
     try {
       // Placeholder: real SEP-10 verification (BE-022/BE-024) will validate
       // signedXdr against the challenge and issue a JWT.
       void signedXdr;
-      void networkPassphrase;
 
       return { token: '' };
     } catch (error) {
-      const message = this.normalizeVerifyError(error);
-      throw new InternalServerErrorException(message);
+      throw new InternalServerErrorException(
+        error instanceof Error ? error.message : 'Verification failed',
+      );
     }
-  }
-
-  validateUser(publicKey: string) {
-    return this.prisma.user.findUnique({ where: { email: publicKey } });
-  }
-}
