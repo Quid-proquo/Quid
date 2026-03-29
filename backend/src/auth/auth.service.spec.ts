@@ -40,6 +40,11 @@ describe('AuthService', () => {
                   return undefined;
               }
             },
+          },
+        },
+      ],
+    }).compile();
+
     service = module.get(AuthService);
   });
 
