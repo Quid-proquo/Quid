@@ -5,6 +5,8 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { PrismaService } from './prisma/prisma.service.js';
+import { MissionsModule } from './missions/missions.module.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
   imports: [
@@ -13,7 +15,9 @@ import { PrismaService } from './prisma/prisma.service.js';
       cache: true,
     }),
     ScheduleModule.forRoot(),
+    PrismaModule,
     AuthModule,
+    MissionsModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],
