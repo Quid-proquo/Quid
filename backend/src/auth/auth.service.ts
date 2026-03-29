@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import {
   Keypair,
   Networks,
@@ -35,13 +36,16 @@ export class AuthService {
   private readonly horizonUrl: string;
   private readonly prisma: PrismaService;
   private readonly config: ConfigService;
+  private readonly jwtService: JwtService;
 
   constructor(
     private configService: ConfigService,
     prisma: PrismaService,
+    jwtService: JwtService,
   ) {
     this.prisma = prisma;
     this.config = configService;
+    this.jwtService = jwtService;
     this.serverAccountId =
       this.configService.get<string>('STELLAR_SERVER_PUBLIC_KEY') || '';
     const network =
@@ -60,6 +64,30 @@ export class AuthService {
         'STELLAR_SERVER_PUBLIC_KEY environment variable is required',
       );
     }
+  }
+
+  private getSep10Config() {
+    const homeDomain =
+      this.configService.get<string>('STELLAR_HOME_DOMAIN') || '';
+    const webAuthDomain =
+      this.configService.get<string>('STELLAR_WEB_AUTH_DOMAIN') || '';
+
+    if (!homeDomain) {
+      throw new Error('STELLAR_HOME_DOMAIN environment variable is required');
+    }
+
+    if (!webAuthDomain) {
+      throw new Error(
+        'STELLAR_WEB_AUTH_DOMAIN environment variable is required',
+      );
+    }
+
+    return {
+      serverAccountId: this.serverAccountId,
+      homeDomain,
+      networkPassphrase: this.networkPassphrase,
+      webAuthDomain,
+    };
   }
 
   verifyChallengeSignature(signedChallengeTx: string): string {
@@ -125,6 +153,34 @@ export class AuthService {
     }
   }
 
+  async verifySignedPayload(_signedXdr: string): Promise<string> {
+    const { serverAccountId, homeDomain, networkPassphrase, webAuthDomain } =
+      this.getSep10Config();
+
+    try {
+      const { clientAccountID } = WebAuth.readChallengeTx(
+        _signedXdr,
+        serverAccountId,
+        networkPassphrase,
+        homeDomain,
+        webAuthDomain,
+      );
+
+      WebAuth.verifyChallengeTxSigners(
+        _signedXdr,
+        serverAccountId,
+        networkPassphrase,
+        [clientAccountID],
+        homeDomain,
+        webAuthDomain,
+      );
+
+      return this.issueTokenForAddress(clientAccountID);
+    } catch (error) {
+      throw new UnauthorizedException(this.getSep10ErrorMessage(error));
+    }
+  }
+
   generateChallenge(address: string): ChallengeResponse {
     if (!StrKey.isValidEd25519PublicKey(address)) {
       throw new BadRequestException('Invalid Stellar public key');
@@ -183,7 +239,29 @@ export class AuthService {
     }
   }
 
+  private getSep10ErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return 'SEP-10 verification failed';
+  }
+
+  private async issueTokenForAddress(address: string): Promise<string> {
+    let user = await this.prisma.user.findUnique({
+      where: { address },
+    });
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: { address },
+      });
+    }
+
+    const payload = { userId: user.id, address };
+    return this.jwtService.sign(payload);
+  }
+
   validateUser(publicKey: string) {
-    return this.prisma.user.findUnique({ where: { email: publicKey } });
+    return this.prisma.user.findUnique({ where: { address: publicKey } });
   }
 }
