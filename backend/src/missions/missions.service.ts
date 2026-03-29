@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { MissionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ListMissionsQueryDto,
@@ -10,7 +11,10 @@ export class MissionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listPublicMissions(query: ListMissionsQueryDto): Promise<unknown> {
-    const where = query.status ? { status: query.status } : {};
+    const normalizedStatus = query.status?.toUpperCase() as
+      | MissionStatus
+      | undefined;
+    const where = normalizedStatus ? { status: normalizedStatus } : {};
     const orderBy = {
       createdAt: query.sort === MissionListSort.OLDEST ? 'asc' : 'desc',
     } as const;

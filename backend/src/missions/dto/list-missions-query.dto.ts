@@ -1,13 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
-
-export enum MissionQueryStatus {
-  OPEN = 'OPEN',
-  STARTED = 'STARTED',
-  PAUSED = 'PAUSED',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-}
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export enum MissionListSort {
   NEWEST = 'newest',
@@ -16,8 +8,8 @@ export enum MissionListSort {
 
 export class ListMissionsQueryDto {
   @IsOptional()
-  @IsEnum(MissionQueryStatus)
-  status?: MissionQueryStatus;
+  @IsString()
+  status?: string;
 
   @IsOptional()
   @IsEnum(MissionListSort)

@@ -1,9 +1,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { MissionsService } from './missions.service';
-import {
-  MissionListSort,
-  MissionQueryStatus,
-} from './dto/list-missions-query.dto';
+import { MissionListSort } from './dto/list-missions-query.dto';
+import { MissionStatus } from '@prisma/client';
 
 describe('MissionsService', () => {
   let service: MissionsService;
@@ -23,15 +21,29 @@ describe('MissionsService', () => {
     prisma.mission.findMany.mockResolvedValue([]);
 
     await service.listPublicMissions({
-      status: MissionQueryStatus.OPEN,
+      status: 'OPEN',
       sort: MissionListSort.NEWEST,
       limit: 5,
     });
 
     expect(prisma.mission.findMany).toHaveBeenCalledWith({
-      where: { status: MissionQueryStatus.OPEN },
+      where: { status: MissionStatus.OPEN },
       orderBy: { createdAt: 'desc' },
       take: 5,
+    });
+  });
+
+  it('normalizes lowercase status values before querying Prisma', async () => {
+    prisma.mission.findMany.mockResolvedValue([]);
+
+    await service.listPublicMissions({
+      status: 'open',
+    });
+
+    expect(prisma.mission.findMany).toHaveBeenCalledWith({
+      where: { status: MissionStatus.OPEN },
+      orderBy: { createdAt: 'desc' },
+      take: undefined,
     });
   });
 
