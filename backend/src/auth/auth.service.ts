@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Injectable,
   UnauthorizedException,
@@ -33,7 +34,7 @@ export class AuthService {
     }
   }
 
-  async verifyChallengeSignature(signedChallengeTx: string): Promise<string> {
+  verifyChallengeSignature(signedChallengeTx: string): string {
     const homeDomain =
       this.configService.get<string>('STELLAR_HOME_DOMAIN') || '';
     const webAuthDomain =
@@ -74,9 +75,9 @@ export class AuthService {
 
       // 4. Return the verified client account id
       return clientAccount;
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof UnauthorizedException) {
-        throw error;
+        throw error as UnauthorizedException;
       }
 
       // Handle WebAuth parsing/verification errors

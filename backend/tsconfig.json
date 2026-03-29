@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "ESNext",
+    "module": "Node16",
     "moduleResolution": "node16",
     "esModuleInterop": true,
     "isolatedModules": true,

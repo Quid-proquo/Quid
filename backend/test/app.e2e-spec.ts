@@ -6,6 +6,8 @@ import { AppModule } from './../src/app.module';
 import { ConfigModule } from '@nestjs/config';
 import * as dotenv from 'dotenv';
 
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 

@@ -1,19 +1,18 @@
-import { Controller, Post, Body } from '@nestjs/common';
-import { AuthService } from './auth.service';
+import { Controller, Body } from '@nestjs/common';
+import { AuthService } from './auth.service.js';
 import {
   VerifyChallengeDto,
   VerificationResponseDto,
-} from './dto/verify-challenge.dto';
+} from './dto/verify-challenge.dto.js';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('verify-challenge')
-  async verifyChallenge(
+  verifyChallenge(
     @Body() verifyChallengeDto: VerifyChallengeDto,
-  ): Promise<VerificationResponseDto> {
-    const clientAddress = await this.authService.verifyChallengeSignature(
+  ): VerificationResponseDto {
+    const clientAddress = this.authService.verifyChallengeSignature(
       verifyChallengeDto.signedChallengeTx,
     );
 

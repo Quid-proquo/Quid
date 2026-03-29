@@ -4,8 +4,6 @@ import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { WebAuth } from '@stellar/stellar-sdk';
 
-type WebAuthType = typeof WebAuth;
-
 jest.mock('@stellar/stellar-sdk', () => ({
   WebAuth: {
     readChallengeTx: jest.fn(),
@@ -49,7 +47,7 @@ describe('AuthService', () => {
     jest.clearAllMocks();
   });
 
-  it('should verify valid signed challenge and return client address', async () => {
+  it('should verify valid signed challenge and return client address', () => {
     (WebAuth.readChallengeTx as jest.Mock).mockReturnValue({
       clientAccountID:
         'GCLIENTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
@@ -59,9 +57,7 @@ describe('AuthService', () => {
       'GCLIENTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
     ]);
 
-    const result = await service.verifyChallengeSignature(
-      'FAKE_SIGNED_CHALLENGE',
-    );
+    const result = service.verifyChallengeSignature('FAKE_SIGNED_CHALLENGE');
 
     expect(result).toBe(
       'GCLIENTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
