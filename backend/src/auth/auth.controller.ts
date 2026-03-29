@@ -11,6 +11,7 @@ import { VerifySignatureDto } from './dto/verify-signature.dto.js';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Post('verify-challenge')
   verifyChallenge(
     @Body() verifyChallengeDto: VerifyChallengeDto,
   ): VerificationResponseDto {
@@ -21,13 +22,18 @@ export class AuthController {
     return {
       clientAddress,
     };
+  }
+
   @Get('challenge')
-  getChallenge(@Query() query: ChallengeQueryDto) {
+  getChallenge(@Query() query: ChallengeQueryDto): {
+    transaction: string;
+    networkPassphrase: string;
+  } {
     return this.authService.generateChallenge(query.address);
   }
 
   @Post('verify')
-  verifySignature(@Body() body: VerifySignatureDto) {
+  verifySignature(@Body() body: VerifySignatureDto): { token: string } {
     return this.authService.verifySignature(body.signedXdr);
   }
 }

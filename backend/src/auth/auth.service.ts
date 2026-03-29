@@ -1,15 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { WebAuth } from '@stellar/stellar-sdk';
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Keypair } from '@stellar/stellar-sdk';
-import { PrismaService } from '../prisma/prisma.service';
+import { WebAuth, Keypair } from '@stellar/stellar-sdk';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 interface AuthConfig {
   serverKeypair: Keypair;
@@ -22,10 +19,15 @@ export class AuthService {
   private readonly serverAccountId: string;
   private readonly networkPassphrase: string;
   private readonly horizonUrl: string;
-  private readonly prisma: PrismaService,
-  private readonly config: ConfigService,
+  private readonly prisma: PrismaService;
+  private readonly config: ConfigService;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    prisma: PrismaService,
+  ) {
+    this.prisma = prisma;
+    this.config = configService;
     this.serverAccountId =
       this.configService.get<string>('STELLAR_SERVER_PUBLIC_KEY') || '';
     const network =
@@ -89,7 +91,7 @@ export class AuthService {
       return clientAccount;
     } catch (error: unknown) {
       if (error instanceof UnauthorizedException) {
-        throw error as UnauthorizedException;
+        throw error;
       }
 
       // Handle WebAuth parsing/verification errors
@@ -108,8 +110,6 @@ export class AuthService {
       throw new BadRequestException('Invalid challenge transaction format');
     }
   }
-
-
 
   private loadAuthConfig(): AuthConfig {
     const serverPrivateKey = this.config.get<string>('SERVER_PRIVATE_KEY');
@@ -157,9 +157,10 @@ export class AuthService {
     return 'Signature verification failed';
   }
 
-  generateChallenge(
-    address: string,
-  ): { transaction: string; networkPassphrase: string } {
+  generateChallenge(address: string): {
+    transaction: string;
+    networkPassphrase: string;
+  } {
     const { serverKeypair, webAuthDomain, networkPassphrase } =
       this.loadAuthConfig();
 
