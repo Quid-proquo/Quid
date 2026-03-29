@@ -181,3 +181,9 @@ export class AuthService {
         error instanceof Error ? error.message : 'Verification failed',
       );
     }
+  }
+
+  validateUser(publicKey: string) {
+    return this.prisma.user.findUnique({ where: { email: publicKey } });
+  }
+}
