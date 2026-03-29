@@ -153,34 +153,6 @@ export class AuthService {
     }
   }
 
-  async verifySignedPayload(_signedXdr: string): Promise<string> {
-    const { serverAccountId, homeDomain, networkPassphrase, webAuthDomain } =
-      this.getSep10Config();
-
-    try {
-      const { clientAccountID } = WebAuth.readChallengeTx(
-        _signedXdr,
-        serverAccountId,
-        networkPassphrase,
-        homeDomain,
-        webAuthDomain,
-      );
-
-      WebAuth.verifyChallengeTxSigners(
-        _signedXdr,
-        serverAccountId,
-        networkPassphrase,
-        [clientAccountID],
-        homeDomain,
-        webAuthDomain,
-      );
-
-      return this.issueTokenForAddress(clientAccountID);
-    } catch (error) {
-      throw new UnauthorizedException(this.getSep10ErrorMessage(error));
-    }
-  }
-
   generateChallenge(address: string): ChallengeResponse {
     if (!StrKey.isValidEd25519PublicKey(address)) {
       throw new BadRequestException('Invalid Stellar public key');
@@ -223,6 +195,34 @@ export class AuthService {
       issuedAt,
       expiresIn: CHALLENGE_TIMEOUT,
     };
+  }
+
+  async verifySignedPayload(_signedXdr: string): Promise<string> {
+    const { serverAccountId, homeDomain, networkPassphrase, webAuthDomain } =
+      this.getSep10Config();
+
+    try {
+      const { clientAccountID } = WebAuth.readChallengeTx(
+        _signedXdr,
+        serverAccountId,
+        networkPassphrase,
+        homeDomain,
+        webAuthDomain,
+      );
+
+      WebAuth.verifyChallengeTxSigners(
+        _signedXdr,
+        serverAccountId,
+        networkPassphrase,
+        [clientAccountID],
+        homeDomain,
+        webAuthDomain,
+      );
+
+      return this.issueTokenForAddress(clientAccountID);
+    } catch (error) {
+      throw new UnauthorizedException(this.getSep10ErrorMessage(error));
+    }
   }
 
   verifySignature(signedXdr: string): { token: string } {

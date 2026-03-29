@@ -33,7 +33,9 @@ export class AuthController {
   }
 
   @Post('verify')
-  async verifySignature(@Body() body: VerifySignatureDto): Promise<{ token: string }> {
+  async verifySignature(
+    @Body() body: VerifySignatureDto,
+  ): Promise<{ token: string }> {
     const token = await this.authService.verifySignedPayload(body.signedXdr);
     return { token };
   }
