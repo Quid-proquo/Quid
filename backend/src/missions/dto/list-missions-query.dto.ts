@@ -4,6 +4,7 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 export enum MissionListSort {
   NEWEST = 'newest',
   OLDEST = 'oldest',
+  HIGHEST_REWARD = 'highest_reward',
 }
 
 export class ListMissionsQueryDto {

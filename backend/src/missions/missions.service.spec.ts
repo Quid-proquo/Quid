@@ -43,7 +43,7 @@ describe('MissionsService', () => {
     expect(prisma.mission.findMany).toHaveBeenCalledWith({
       where: { status: MissionStatus.OPEN },
       orderBy: { createdAt: 'desc' },
-      take: undefined,
+      take: 20,
     });
   });
 
@@ -55,7 +55,7 @@ describe('MissionsService', () => {
     expect(prisma.mission.findMany).toHaveBeenCalledWith({
       where: {},
       orderBy: { createdAt: 'desc' },
-      take: undefined,
+      take: 20,
     });
   });
 
@@ -69,7 +69,36 @@ describe('MissionsService', () => {
     expect(prisma.mission.findMany).toHaveBeenCalledWith({
       where: {},
       orderBy: { createdAt: 'asc' },
-      take: undefined,
+      take: 20,
+    });
+  });
+
+  it('sorts by rewardAmount desc when sort is highest_reward', async () => {
+    prisma.mission.findMany.mockResolvedValue([]);
+
+    await service.listPublicMissions({
+      sort: MissionListSort.HIGHEST_REWARD,
+    });
+
+    expect(prisma.mission.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: { rewardAmount: 'desc' },
+      take: 20,
+    });
+  });
+
+  it('respects an explicit limit when provided', async () => {
+    prisma.mission.findMany.mockResolvedValue([]);
+
+    await service.listPublicMissions({
+      sort: MissionListSort.HIGHEST_REWARD,
+      limit: 10,
+    });
+
+    expect(prisma.mission.findMany).toHaveBeenCalledWith({
+      where: {},
+      orderBy: { rewardAmount: 'desc' },
+      take: 10,
     });
   });
 });

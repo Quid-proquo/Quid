@@ -15,14 +15,15 @@ export class MissionsService {
       | MissionStatus
       | undefined;
     const where = normalizedStatus ? { status: normalizedStatus } : {};
-    const orderBy = {
-      createdAt: query.sort === MissionListSort.OLDEST ? 'asc' : 'desc',
-    } as const;
+    const orderBy =
+      query.sort === MissionListSort.HIGHEST_REWARD
+        ? { rewardAmount: 'desc' as const }
+        : { createdAt: query.sort === MissionListSort.OLDEST ? 'asc' : 'desc' as const };
 
     const missions = await this.prisma.mission.findMany({
       where,
       orderBy,
-      take: query.limit,
+      take: query.limit ?? 20,
     });
 
     return missions as unknown;
