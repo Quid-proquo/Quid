@@ -13,6 +13,7 @@ import { MissionsService } from './missions.service';
 import { ListMissionsQueryDto } from './dto/list-missions-query.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Prisma } from '@prisma/client';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -49,7 +50,7 @@ export class MissionsController {
   saveDraft(
     @Body() dto: SaveDraftDto,
     @Req() req: AuthenticatedRequest,
-  ): Promise<unknown> {
+  ): Promise<Prisma.MissionDraftGetPayload<null>> {
     return this.missionsService.saveDraft(req.user.address, dto);
   }
 }

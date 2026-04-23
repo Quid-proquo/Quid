@@ -1,4 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MissionsService } from './missions.service';
 import { MissionListSort } from './dto/list-missions-query.dto';
@@ -232,6 +233,64 @@ describe('MissionsService', () => {
       });
       expect(prisma.missionDraft.update).not.toHaveBeenCalled();
       expect(result).toEqual(createdDraft);
+    });
+
+    it('converts null data to Prisma.JsonNull when creating a draft', async () => {
+      prisma.missionDraft.findFirst.mockResolvedValue(null);
+      const createdDraft = {
+        id: 'draft-2',
+        ownerAddress: '0xabc',
+        title: 'Null Draft',
+        data: Prisma.JsonNull,
+      };
+      prisma.missionDraft.create.mockResolvedValue(createdDraft);
+
+      const result = await service.saveDraft('0xabc', {
+        title: 'Null Draft',
+        data: null,
+      });
+
+      expect(prisma.missionDraft.create).toHaveBeenCalledWith({
+        data: {
+          ownerAddress: '0xabc',
+          title: 'Null Draft',
+          data: Prisma.JsonNull,
+        },
+      });
+      expect(result).toEqual(createdDraft);
+    });
+
+    it('converts null data to Prisma.JsonNull when updating a draft', async () => {
+      const existingDraft = {
+        id: 'draft-1',
+        ownerAddress: '0xabc',
+        title: 'Old Draft',
+        data: { old: true },
+        updatedAt: new Date('2026-01-01'),
+      };
+      prisma.missionDraft.findFirst.mockResolvedValue(existingDraft);
+      const updatedDraft = {
+        id: 'draft-1',
+        ownerAddress: '0xabc',
+        title: 'Null Draft',
+        data: Prisma.JsonNull,
+      };
+      prisma.missionDraft.update.mockResolvedValue(updatedDraft);
+
+      const result = await service.saveDraft('0xabc', {
+        title: 'Null Draft',
+        data: null,
+      });
+
+      expect(prisma.missionDraft.update).toHaveBeenCalledWith({
+        where: { id: 'draft-1' },
+        data: {
+          title: 'Null Draft',
+          data: Prisma.JsonNull,
+        },
+      });
+      expect(prisma.missionDraft.create).not.toHaveBeenCalled();
+      expect(result).toEqual(updatedDraft);
     });
 
     it('updates the latest draft when one exists', async () => {

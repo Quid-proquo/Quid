@@ -38,7 +38,9 @@ const missionDetailInclude = {
 
 type DraftData = Prisma.InputJsonValue | null;
 
-function sanitizeDraftData(data: DraftData): Prisma.InputJsonValue {
+type DraftDataInput = Prisma.JsonNullValueInput | Prisma.InputJsonValue;
+
+function sanitizeDraftData(data: DraftData): DraftDataInput {
   return data === null ? Prisma.JsonNull : data;
 }
 
