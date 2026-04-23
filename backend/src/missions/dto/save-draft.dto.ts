@@ -1,10 +1,11 @@
-import { IsNotEmpty, IsObject, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, ValidateIf } from 'class-validator';
+import { Prisma } from '@prisma/client';
 
 export class SaveDraftDto {
   @IsString()
   @IsNotEmpty()
   title: string = '';
 
-  @IsObject()
-  data: Record<string, unknown> = {};
+  @ValidateIf((_, value) => value !== null)
+  data: Prisma.InputJsonValue | null = {};
 }

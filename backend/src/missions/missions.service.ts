@@ -36,6 +36,12 @@ const missionDetailInclude = {
   },
 } as const;
 
+type DraftData = Prisma.InputJsonValue | null;
+
+function sanitizeDraftData(data: DraftData): Prisma.InputJsonValue {
+  return data === null ? Prisma.JsonNull : data;
+}
+
 @Injectable()
 export class MissionsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -72,7 +78,12 @@ export class MissionsService {
     return mission as unknown;
   }
 
-  async saveDraft(ownerAddress: string, dto: SaveDraftDto): Promise<unknown> {
+  async saveDraft(
+    ownerAddress: string,
+    dto: SaveDraftDto,
+  ): Promise<Prisma.MissionDraftGetPayload<null>> {
+    const data = sanitizeDraftData(dto.data);
+
     const latestDraft = await this.prisma.missionDraft.findFirst({
       where: { ownerAddress },
       orderBy: { updatedAt: 'desc' },
@@ -83,7 +94,7 @@ export class MissionsService {
         where: { id: latestDraft.id },
         data: {
           title: dto.title,
-          data: dto.data as Prisma.InputJsonValue,
+          data,
         },
       });
       return updated;
@@ -93,7 +104,7 @@ export class MissionsService {
       data: {
         ownerAddress,
         title: dto.title,
-        data: dto.data as Prisma.InputJsonValue,
+        data,
       },
     });
     return created;
