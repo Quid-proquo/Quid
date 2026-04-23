@@ -6,6 +6,14 @@ export enum MissionListSort {
   OLDEST = 'oldest',
 }
 
+export enum MissionQueryStatus {
+  OPEN = 'OPEN',
+  STARTED = 'STARTED',
+  PAUSED = 'PAUSED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
 export class ListMissionsQueryDto {
   @IsOptional()
   @IsString()
