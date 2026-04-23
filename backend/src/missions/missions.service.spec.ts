@@ -94,7 +94,9 @@ describe('MissionsService', () => {
       };
       prisma.mission.findMany.mockResolvedValue([mockMission]);
 
-      const result = await service.listPublicMissions({}) as typeof mockMission[];
+      const result = (await service.listPublicMissions(
+        {},
+      )) as (typeof mockMission)[];
 
       expect(result[0].owner.address).toBe('0xabc');
       expect(result[0].owner.displayName).toBe('Alice');
@@ -106,12 +108,18 @@ describe('MissionsService', () => {
     it('returns a mission with owner address, displayName, email, and submission count', async () => {
       const mockMission = {
         id: 'mission-1',
-        owner: { address: '0xabc', displayName: 'Alice', email: 'alice@example.com' },
+        owner: {
+          address: '0xabc',
+          displayName: 'Alice',
+          email: 'alice@example.com',
+        },
         _count: { submissions: 5 },
       };
       prisma.mission.findUnique.mockResolvedValue(mockMission);
 
-      const result = await service.getMission('mission-1') as typeof mockMission;
+      const result = (await service.getMission(
+        'mission-1',
+      )) as typeof mockMission;
 
       expect(prisma.mission.findUnique).toHaveBeenCalledWith({
         where: { id: 'mission-1' },

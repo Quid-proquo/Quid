@@ -51,7 +51,7 @@ export class MissionsService {
       include: missionListInclude,
     });
 
-    return missions as unknown;
+    return missions;
   }
 
   async getMission(id: string): Promise<unknown> {
@@ -64,6 +64,6 @@ export class MissionsService {
       throw new NotFoundException(`Mission ${id} not found`);
     }
 
-    return mission as unknown;
+    return mission;
   }
 }
