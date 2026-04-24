@@ -25,8 +25,6 @@ describe('MissionsService', () => {
       update: jest.Mock;
       create: jest.Mock;
     };
-
-
   };
 
   beforeEach(() => {
@@ -44,8 +42,6 @@ describe('MissionsService', () => {
         update: jest.fn(),
         create: jest.fn(),
       },
-
-
     };
 
     service = new MissionsService(prisma as unknown as PrismaService);
@@ -209,7 +205,6 @@ describe('MissionsService', () => {
     });
   });
 
-
   describe('saveDraft', () => {
     it('creates a draft when no existing draft is found', async () => {
       prisma.missionDraft.findFirst.mockResolvedValue(null);
@@ -278,6 +273,4 @@ describe('MissionsService', () => {
       expect(result).toEqual(updatedDraft);
     });
   });
-
-
 });
