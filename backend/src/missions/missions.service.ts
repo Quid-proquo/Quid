@@ -79,14 +79,6 @@ export class MissionsService {
     return mission;
   }
 
-  async getMyMissions(id: string): Promise<unknown> {
-    return await this.prisma.mission.findMany({
-      where: { id },
-      orderBy: { createdAt: 'desc' },
-      include: missionListInclude,
-    });
-  }
-
   saveDraft(id: string, body: string): { id: string; body: string } {
     return { id, body };
   }
