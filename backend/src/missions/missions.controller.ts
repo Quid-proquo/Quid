@@ -34,7 +34,7 @@ export class MissionsController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  me(@Req() req: Request & { user: { address: string } }): Promise<unknown> {
+  me(@Req() req: AuthenticatedRequest): Promise<unknown> {
     return this.missionsService.getMyMissions(req.user.address);
   }
 
