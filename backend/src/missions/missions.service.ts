@@ -1,7 +1,159 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+
+import { MissionStatus, Prisma } from '@prisma/client';
+
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  ListMissionsQueryDto,
+  MissionListSort,
+} from './dto/list-missions-query.dto';
+import { SaveDraftDto } from './dto/save-draft.dto';
+
+const missionListInclude = {
+  owner: {
+    select: {
+      address: true,
+      displayName: true,
+    },
+  },
+  _count: {
+    select: { submissions: true },
+  },
+} as const;
+
+const missionDetailInclude = {
+  owner: {
+    select: {
+      address: true,
+      displayName: true,
+      email: true,
+    },
+  },
+  _count: {
+    select: { submissions: true },
+  },
+} as const;
+
+type DraftData = Prisma.InputJsonValue | null;
+
+type DraftDataInput = Prisma.JsonNullValueInput | Prisma.InputJsonValue;
+
+function sanitizeDraftData(data: DraftData): DraftDataInput {
+  return data === null ? Prisma.JsonNull : data;
+}
 
 @Injectable()
 export class MissionsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listPublicMissions(query: ListMissionsQueryDto): Promise<unknown> {
+    const normalizedStatus = query.status?.toUpperCase() as
+      | MissionStatus
+      | undefined;
+    const where = normalizedStatus ? { status: normalizedStatus } : {};
+    const orderBy = {
+      createdAt: query.sort === MissionListSort.OLDEST ? 'asc' : 'desc',
+    } as const;
+
+    const missions = await this.prisma.mission.findMany({
+      where,
+      orderBy,
+      take: query.limit,
+      include: missionListInclude,
+    });
+
+    return missions;
+  }
+
+  async getMyMissions(ownerAddress: string): Promise<unknown> {
+    return this.prisma.mission.findMany({
+      where: { ownerAddress },
+      orderBy: { createdAt: 'desc' },
+      include: missionListInclude,
+    });
+  }
+
+  async getMission(id: string): Promise<unknown> {
+    const mission = await this.prisma.mission.findUnique({
+      where: { id },
+      include: missionDetailInclude,
+    });
+
+    if (!mission) {
+      throw new NotFoundException(`Mission ${id} not found`);
+    }
+
+    return mission;
+  }
+
+  async saveDraft(
+    ownerAddress: string,
+    dto: SaveDraftDto,
+  ): Promise<Prisma.MissionDraftGetPayload<null>> {
+    const data = sanitizeDraftData(dto.data);
+
+    const latestDraft = await this.prisma.missionDraft.findFirst({
+      where: { ownerAddress },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (latestDraft) {
+      const updated = await this.prisma.missionDraft.update({
+        where: { id: latestDraft.id },
+        data: {
+          title: dto.title,
+          data,
+        },
+      });
+      return updated;
+    }
+
+    const created = await this.prisma.missionDraft.create({
+      data: {
+        ownerAddress,
+        title: dto.title,
+        data,
+      },
+    });
+    return created;
+  }
+
+  async getMissionSubmissions(
+    missionId: string,
+    ownerAddress: string,
+  ): Promise<unknown> {
+    const mission = await this.prisma.mission.findUnique({
+      where: { id: missionId },
+      select: { id: true, ownerAddress: true },
+    });
+
+    if (!mission) {
+      throw new NotFoundException(`Mission ${missionId} not found`);
+    }
+
+    if (mission.ownerAddress !== ownerAddress) {
+      throw new ForbiddenException(
+        'You are not authorized to view submissions for this mission',
+      );
+    }
+
+    const submissions = await this.prisma.submission.findMany({
+      where: { missionId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        hunter: {
+          select: {
+            address: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    return submissions;
+  }
 }
