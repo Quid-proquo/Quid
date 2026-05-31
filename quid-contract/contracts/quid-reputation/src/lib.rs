@@ -36,9 +36,7 @@ impl QuidReputationContract {
             new_admin.require_auth();
         }
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &new_admin);
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
 
         Ok(())
     }

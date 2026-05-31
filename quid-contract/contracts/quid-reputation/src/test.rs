@@ -2,7 +2,9 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
-use crate::{error::ReputationError, types::Profile, QuidReputationContract, QuidReputationContractClient};
+use crate::{
+    error::ReputationError, types::Profile, QuidReputationContract, QuidReputationContractClient,
+};
 
 fn setup() -> (Env, Address, QuidReputationContractClient<'static>) {
     let env = Env::default();
