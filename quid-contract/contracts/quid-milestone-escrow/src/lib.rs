@@ -43,7 +43,7 @@ impl QuidMilestoneEscrowContract {
 
         token::Client::new(&env, &token).transfer(
             &sponsor,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &total_amount,
         );
 
