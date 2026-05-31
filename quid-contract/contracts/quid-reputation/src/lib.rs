@@ -179,7 +179,10 @@ impl QuidReputationContract {
         Self::store_profile(&env, &profile);
 
         env.events().publish(
-            (soroban_sdk::symbol_short!("Profile"), soroban_sdk::symbol_short!("updated")),
+            (
+                soroban_sdk::symbol_short!("Profile"),
+                soroban_sdk::symbol_short!("updated"),
+            ),
             profile,
         );
 

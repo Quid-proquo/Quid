@@ -196,17 +196,17 @@ fn test_increment_success() {
     let (env, _admin, client) = setup_test_env();
 
     let subject = Address::generate(&env);
-    
+
     // First increment
     client.increment_success(&subject, &100);
-    
+
     let fetched = client.get_profile(&subject);
     assert_eq!(fetched.successful_missions, 1);
     assert_eq!(fetched.total_earnings, 100);
 
     // Second increment
     client.increment_success(&subject, &50);
-    
+
     let fetched2 = client.get_profile(&subject);
     assert_eq!(fetched2.successful_missions, 2);
     assert_eq!(fetched2.total_earnings, 150);
@@ -217,7 +217,7 @@ fn test_increment_success_invalid_reward() {
     let (env, _admin, client) = setup_test_env();
 
     let subject = Address::generate(&env);
-    
+
     let res = client.try_increment_success(&subject, &-10);
     assert_eq!(res, Err(Ok(QuidError::InvalidRewardAmount)));
 }
