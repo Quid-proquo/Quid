@@ -2,6 +2,7 @@
 
 use super::*;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use types::Profile;
 
 fn setup_test_env() -> (Env, Address, Address) {
     let env = Env::default();
@@ -52,7 +53,7 @@ fn test_issue_attestation() {
     assert_eq!(attestation.subject, subject);
     assert_eq!(attestation.attestation_type, attestation_type);
     assert_eq!(attestation.data_cid, data_cid);
-    assert_eq!(attestation.revoked, false);
+    assert!(!attestation.revoked);
 }
 
 #[test]
@@ -72,7 +73,7 @@ fn test_revoke_attestation_by_issuer() {
     client.revoke_attestation(&issuer, &attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
-    assert_eq!(attestation.revoked, true);
+    assert!(attestation.revoked);
 }
 
 #[test]
@@ -92,7 +93,7 @@ fn test_revoke_attestation_by_admin() {
     client.revoke_attestation(&admin, &attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
-    assert_eq!(attestation.revoked, true);
+    assert!(attestation.revoked);
 }
 
 #[test]
@@ -163,12 +164,116 @@ fn test_attestation_exists() {
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
 
-    assert_eq!(client.attestation_exists(&1), false);
+    assert!(!client.attestation_exists(&1));
 
     let attestation_type = String::from_str(&env, "skill");
     let data_cid = String::from_str(&env, "QmTest123");
 
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
-    assert_eq!(client.attestation_exists(&attestation_id), true);
+    assert!(client.attestation_exists(&attestation_id));
+}
+
+#[test]
+fn test_create_and_get_profile() {
+    let (env, _contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &_contract_id);
+
+    let subject = Address::generate(&env);
+    let updated_at = env.ledger().timestamp();
+
+    let profile = Profile {
+        subject: subject.clone(),
+        successful_missions: 5,
+        rejected_submissions: 2,
+        reviewer_score: 100,
+        founder_score: 50,
+        total_earnings: 1000,
+        updated_at,
+    };
+
+    client.set_profile(&profile);
+
+    let retrieved_profile = client.get_profile(&subject);
+    assert_eq!(retrieved_profile.subject, subject);
+    assert_eq!(retrieved_profile.successful_missions, 5);
+    assert_eq!(retrieved_profile.rejected_submissions, 2);
+    assert_eq!(retrieved_profile.reviewer_score, 100);
+    assert_eq!(retrieved_profile.founder_score, 50);
+    assert_eq!(retrieved_profile.total_earnings, 1000);
+    assert_eq!(retrieved_profile.updated_at, updated_at);
+}
+
+#[test]
+fn test_update_profile() {
+    let (env, _contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &_contract_id);
+
+    let subject = Address::generate(&env);
+
+    let profile = Profile {
+        subject: subject.clone(),
+        successful_missions: 5,
+        rejected_submissions: 2,
+        reviewer_score: 100,
+        founder_score: 50,
+        total_earnings: 1000,
+        updated_at: env.ledger().timestamp(),
+    };
+
+    client.set_profile(&profile);
+
+    // Update the profile
+    let updated_profile = Profile {
+        subject: subject.clone(),
+        successful_missions: 10,
+        rejected_submissions: 3,
+        reviewer_score: 150,
+        founder_score: 75,
+        total_earnings: 2000,
+        updated_at: env.ledger().timestamp(),
+    };
+
+    client.set_profile(&updated_profile);
+
+    let retrieved_profile = client.get_profile(&subject);
+    assert_eq!(retrieved_profile.successful_missions, 10);
+    assert_eq!(retrieved_profile.rejected_submissions, 3);
+    assert_eq!(retrieved_profile.reviewer_score, 150);
+    assert_eq!(retrieved_profile.founder_score, 75);
+    assert_eq!(retrieved_profile.total_earnings, 2000);
+}
+
+#[test]
+fn test_profile_exists() {
+    let (env, _contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &_contract_id);
+
+    let subject = Address::generate(&env);
+
+    assert!(!client.profile_exists(&subject));
+
+    let profile = Profile {
+        subject: subject.clone(),
+        successful_missions: 0,
+        rejected_submissions: 0,
+        reviewer_score: 0,
+        founder_score: 0,
+        total_earnings: 0,
+        updated_at: env.ledger().timestamp(),
+    };
+
+    client.set_profile(&profile);
+
+    assert!(client.profile_exists(&subject));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_get_profile_not_found() {
+    let (env, _contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &_contract_id);
+
+    let subject = Address::generate(&env);
+    client.get_profile(&subject);
 }

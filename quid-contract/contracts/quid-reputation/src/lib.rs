@@ -5,7 +5,7 @@ mod error;
 mod types;
 
 use error::ReputationError;
-use types::{Attestation, DataKey};
+use types::{Attestation, DataKey, Profile};
 
 #[contract]
 pub struct QuidReputationContract;
@@ -123,6 +123,34 @@ impl QuidReputationContract {
         env.storage()
             .persistent()
             .has(&DataKey::Attestation(attestation_id))
+    }
+
+    /// Get a profile by subject address
+    pub fn get_profile(env: Env, subject: Address) -> Result<Profile, ReputationError> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Profile(subject))
+            .ok_or(ReputationError::ProfileNotFound)
+    }
+
+    /// Create or update a profile
+    pub fn set_profile(env: Env, profile: Profile) -> Result<(), ReputationError> {
+        profile.subject.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Profile(profile.subject.clone()), &profile);
+
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Profile(profile.subject), 5184000, 5184000);
+
+        Ok(())
+    }
+
+    /// Check if a profile exists
+    pub fn profile_exists(env: Env, subject: Address) -> bool {
+        env.storage().persistent().has(&DataKey::Profile(subject))
     }
 
     // Private helper function to get the next attestation ID

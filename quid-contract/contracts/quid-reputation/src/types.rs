@@ -13,8 +13,21 @@ pub struct Attestation {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Profile {
+    pub subject: Address,
+    pub successful_missions: u32,
+    pub rejected_submissions: u32,
+    pub reviewer_score: i64,
+    pub founder_score: i64,
+    pub total_earnings: i128,
+    pub updated_at: u64,
+}
+
+#[contracttype]
 pub enum DataKey {
+    Admin,
+    Profile(Address),
     Attestation(u64),
     AttestationCount,
-    Admin,
 }

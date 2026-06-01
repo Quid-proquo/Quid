@@ -7,4 +7,5 @@ pub enum ReputationError {
     AttestationNotFound = 2,
     AlreadyRevoked = 3,
     InvalidInput = 4,
+    ProfileNotFound = 5,
 }
