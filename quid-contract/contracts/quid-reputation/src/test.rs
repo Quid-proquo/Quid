@@ -52,7 +52,7 @@ fn test_issue_attestation() {
     assert_eq!(attestation.subject, subject);
     assert_eq!(attestation.attestation_type, attestation_type);
     assert_eq!(attestation.data_cid, data_cid);
-    assert_eq!(attestation.revoked, false);
+    assert!(!attestation.revoked);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn test_revoke_attestation_by_issuer() {
     client.revoke_attestation(&issuer, &attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
-    assert_eq!(attestation.revoked, true);
+    assert!(attestation.revoked);
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn test_revoke_attestation_by_admin() {
     client.revoke_attestation(&admin, &attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
-    assert_eq!(attestation.revoked, true);
+    assert!(attestation.revoked);
 }
 
 #[test]
@@ -163,12 +163,12 @@ fn test_attestation_exists() {
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
 
-    assert_eq!(client.attestation_exists(&1), false);
+    assert!(!client.attestation_exists(&1));
 
     let attestation_type = String::from_str(&env, "skill");
     let data_cid = String::from_str(&env, "QmTest123");
 
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
-    assert_eq!(client.attestation_exists(&attestation_id), true);
+    assert!(client.attestation_exists(&attestation_id));
 }
