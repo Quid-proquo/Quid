@@ -95,50 +95,72 @@ impl MilestoneEscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::Program(program_id), &program);
-        ProgramCreatedEvent { program_id, owner }.publish(&env);
+
+        ProgramCreatedEvent {
+            program_id,
+            sponsor,
+            recipient,
+        }
+        .publish(&env);
+        ProgramStatusChangedEvent { program_id, status }.publish(&env);
 
         Ok(program_id)
     }
 
+    pub fn get_program(env: Env, program_id: u64) -> Result<Program, MilestoneEscrowError> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Program(program_id))
+            .ok_or(MilestoneEscrowError::ProgramNotFound)
+    }
+
     pub fn add_milestone(
         env: Env,
-        owner: Address,
         program_id: u64,
-        milestone_id: u32,
+        title: String,
         amount: i128,
-    ) -> Result<(), MilestoneEscrowError> {
-        owner.require_auth();
+        due_at: u64,
+        metadata_cid: String,
+    ) -> Result<u64, MilestoneEscrowError> {
+        let mut program = Self::get_program(env.clone(), program_id)?;
+        program.sponsor.require_auth();
+
+        if program.status != ProgramStatus::Active {
+            return Err(MilestoneEscrowError::InvalidState);
+        }
 
         if amount <= 0 {
             return Err(MilestoneEscrowError::InvalidAmount);
         }
 
-        let mut program: Program = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Program(program_id))
-            .ok_or(MilestoneEscrowError::ProgramNotFound)?;
-
-        if program.owner != owner {
-            return Err(MilestoneEscrowError::NotAuthorized);
-        }
-        if program.status != ProgramStatus::Active {
-            return Err(MilestoneEscrowError::ProgramClosed);
-        }
-        if amount > program.escrow_balance {
-            return Err(MilestoneEscrowError::AmountExceedsEscrow);
+        let allocated_amount = program
+            .allocated_amount
+            .checked_add(amount)
+            .ok_or(MilestoneEscrowError::InvalidAmount)?;
+        if allocated_amount > program.total_amount {
+            return Err(MilestoneEscrowError::InvalidAmount);
         }
 
+        let milestone_id = program.milestone_count + 1;
         let milestone = Milestone {
+            id: milestone_id,
             program_id,
-            milestone_id,
+            title,
             amount,
-            pending: true,
+            due_at,
+            metadata_cid,
+            status: MilestoneStatus::Pending,
         };
+
+        program.allocated_amount = allocated_amount;
+        program.milestone_count = milestone_id;
 
         env.storage()
             .persistent()
             .set(&DataKey::Milestone(program_id, milestone_id), &milestone);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Program(program_id), &program);
 
         MilestoneAddedEvent {
             program_id,
