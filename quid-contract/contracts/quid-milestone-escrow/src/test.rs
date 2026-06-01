@@ -91,7 +91,7 @@ fn test_create_program_funds_and_stores_active_program() {
 
 #[test]
 fn test_add_milestone_stores_and_updates_program_totals() {
-    let (env, contract_id, sponsor, token_address) = setup_test_env();
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
     let recipient = Address::generate(&env);
     let total_amount = 500;
@@ -136,7 +136,7 @@ fn test_add_milestone_stores_and_updates_program_totals() {
 #[test]
 #[should_panic(expected = "Error(Contract, #2)")]
 fn test_add_milestone_rejects_over_allocation() {
-    let (env, contract_id, sponsor, token_address) = setup_test_env();
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
     let recipient = Address::generate(&env);
     let total_amount = 500;
@@ -161,7 +161,7 @@ fn test_add_milestone_rejects_over_allocation() {
 #[test]
 #[should_panic(expected = "Error(Contract, #4)")]
 fn test_get_milestone_not_found() {
-    let (env, contract_id, _sponsor, _token_address) = setup_test_env();
+    let (env, contract_id, _sponsor, _token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
 
     let _ = client.get_milestone(&999, &1);
