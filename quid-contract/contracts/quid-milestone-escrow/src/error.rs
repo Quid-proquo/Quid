@@ -6,4 +6,6 @@ pub enum MilestoneEscrowError {
     InvalidState = 1,
     InvalidAmount = 2,
     ProgramNotFound = 3,
+    MilestoneNotFound = 4,
+    NotAuthorized = 5,
 }
