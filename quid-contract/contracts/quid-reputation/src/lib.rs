@@ -159,6 +159,7 @@ impl QuidReputationContract {
     // -------------------------------------------------------------------------
 
     /// Record a successful mission for `subject` and add `reward_amount` to their total earnings.
+    #[allow(deprecated)]
     pub fn increment_success(
         env: Env,
         subject: Address,
