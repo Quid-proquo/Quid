@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Rust's output directory
 target
 
@@ -6,4 +7,14 @@ target
 .stellar
 .vscode/
 
+=======
+# Rust's output directory
+target
+
+# Local settings
+.soroban
+.stellar
+.vscode/
+
+>>>>>>> f0c6f47 (feat(contracts): implement upsert profile)
 **/*/test_snapshots

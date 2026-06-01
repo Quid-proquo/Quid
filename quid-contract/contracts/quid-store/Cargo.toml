@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 [package]
 name = "quid-store"
 version = "0.0.0"
@@ -13,3 +14,20 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+=======
+[package]
+name = "quid-store"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+>>>>>>> f0c6f47 (feat(contracts): implement upsert profile)
