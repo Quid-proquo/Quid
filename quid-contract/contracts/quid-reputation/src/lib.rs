@@ -1,8 +1,11 @@
 #![no_std]
+
 use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
+
 
 mod error;
 mod types;
+
 
 use error::QuidError;
 use types::{Attestation, DataKey};
@@ -19,11 +22,13 @@ pub struct AttestationRevokedEvent {
     pub attestation_id: u64,
 }
 
+
 #[contract]
 pub struct QuidReputationContract;
 
 #[contractimpl]
 impl QuidReputationContract {
+
     /// Bootstrap admin for the contract
     pub fn bootstrap_admin(env: Env, admin: Address) -> Result<(), QuidError> {
         // Only allow setting admin if not already set
@@ -49,10 +54,12 @@ impl QuidReputationContract {
     }
 
     /// Issue an attestation for a subject
+
     pub fn issue_attestation(
         env: Env,
         issuer: Address,
         subject: Address,
+
         kind: String,
         label: String,
         metadata_cid: Option<String>,
@@ -77,10 +84,12 @@ impl QuidReputationContract {
         // Get the next attestation id
         let attestation_id = Self::get_next_attestation_id(&env);
 
+
         let issued_at = env.ledger().timestamp();
 
         let attestation = Attestation {
             id: attestation_id,
+
             issuer: issuer.clone(),
             subject: subject.clone(),
             kind,
@@ -92,6 +101,7 @@ impl QuidReputationContract {
         };
 
         // Store the attestation
+
         env.storage()
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
@@ -146,7 +156,6 @@ impl QuidReputationContract {
             5184000,
             5184000,
         );
-
         // Publish AttestationRevokedEvent
         AttestationRevokedEvent { attestation_id }.publish(&env);
 

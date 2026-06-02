@@ -1,5 +1,6 @@
 # Quid Reputation Contract
 
+
 The Quid Reputation contract implements an on-chain attestation system for tracking contributor activity and reputation.
 
 ## Features

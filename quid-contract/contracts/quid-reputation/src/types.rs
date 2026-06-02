@@ -13,12 +13,12 @@ pub struct Attestation {
     pub expires_at: Option<u64>,
     pub revoked: bool,
 }
-
 #[contracttype]
 pub enum DataKey {
     Attestation(u64),
     AttestationCount,
     Admin,
+
 }
 
 #[contracttype]
@@ -26,4 +26,5 @@ pub enum AttestationKind {
     Contributor,
     Expert,
     Reviewer,
+
 }

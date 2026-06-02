@@ -1,14 +1,19 @@
 [package]
 name = "quid-reputation"
+
 version = "0.1.0"
+
 edition = "2021"
 publish = false
 
 [lib]
+
 crate-type = ["cdylib"]
+
 
 [dependencies]
 soroban-sdk = { workspace = true }
+
 
 [profile.release]
 opt-level = "z"
@@ -23,3 +28,4 @@ lto = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
