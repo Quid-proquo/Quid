@@ -9,4 +9,8 @@ pub enum ReputationError {
     InvalidInput = 4,
     /// No profile exists for the given subject address.
     ProfileNotFound = 5,
+    /// Admin address has not been set in the contract.
+    AdminNotSet = 6,
+    /// Invalid amount provided for the operation.
+    InvalidAmount = 7,
 }
