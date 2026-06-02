@@ -1,11 +1,8 @@
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
-use types::Profile;
 
-use crate::{
-    error::ReputationError, types::Profile, QuidReputationContract, QuidReputationContractClient,
-};
+use crate::{types::Profile, QuidReputationContract, QuidReputationContractClient};
 
 fn setup_test_env() -> (Env, Address, Address) {
     let env = Env::default();
@@ -185,28 +182,21 @@ fn test_create_and_get_profile() {
     let client = QuidReputationContractClient::new(&env, &_contract_id);
 
     let subject = Address::generate(&env);
-    let updated_at = env.ledger().timestamp();
 
     let profile = Profile {
         subject: subject.clone(),
-        successful_missions: 5,
-        rejected_submissions: 2,
-        reviewer_score: 100,
-        founder_score: 50,
-        total_earnings: 1000,
-        updated_at,
+        score: 150,
+        missions_completed: 5,
+        missions_created: 2,
     };
 
     client.set_profile(&profile);
 
     let retrieved_profile = client.get_profile(&subject);
     assert_eq!(retrieved_profile.subject, subject);
-    assert_eq!(retrieved_profile.successful_missions, 5);
-    assert_eq!(retrieved_profile.rejected_submissions, 2);
-    assert_eq!(retrieved_profile.reviewer_score, 100);
-    assert_eq!(retrieved_profile.founder_score, 50);
-    assert_eq!(retrieved_profile.total_earnings, 1000);
-    assert_eq!(retrieved_profile.updated_at, updated_at);
+    assert_eq!(retrieved_profile.score, 150);
+    assert_eq!(retrieved_profile.missions_completed, 5);
+    assert_eq!(retrieved_profile.missions_created, 2);
 }
 
 #[test]
@@ -218,12 +208,9 @@ fn test_update_profile() {
 
     let profile = Profile {
         subject: subject.clone(),
-        successful_missions: 5,
-        rejected_submissions: 2,
-        reviewer_score: 100,
-        founder_score: 50,
-        total_earnings: 1000,
-        updated_at: env.ledger().timestamp(),
+        score: 100,
+        missions_completed: 5,
+        missions_created: 2,
     };
 
     client.set_profile(&profile);
@@ -231,22 +218,17 @@ fn test_update_profile() {
     // Update the profile
     let updated_profile = Profile {
         subject: subject.clone(),
-        successful_missions: 10,
-        rejected_submissions: 3,
-        reviewer_score: 150,
-        founder_score: 75,
-        total_earnings: 2000,
-        updated_at: env.ledger().timestamp(),
+        score: 225,
+        missions_completed: 10,
+        missions_created: 3,
     };
 
     client.set_profile(&updated_profile);
 
     let retrieved_profile = client.get_profile(&subject);
-    assert_eq!(retrieved_profile.successful_missions, 10);
-    assert_eq!(retrieved_profile.rejected_submissions, 3);
-    assert_eq!(retrieved_profile.reviewer_score, 150);
-    assert_eq!(retrieved_profile.founder_score, 75);
-    assert_eq!(retrieved_profile.total_earnings, 2000);
+    assert_eq!(retrieved_profile.score, 225);
+    assert_eq!(retrieved_profile.missions_completed, 10);
+    assert_eq!(retrieved_profile.missions_created, 3);
 }
 
 #[test]
@@ -260,12 +242,9 @@ fn test_profile_exists() {
 
     let profile = Profile {
         subject: subject.clone(),
-        successful_missions: 0,
-        rejected_submissions: 0,
-        reviewer_score: 0,
-        founder_score: 0,
-        total_earnings: 0,
-        updated_at: env.ledger().timestamp(),
+        score: 0,
+        missions_completed: 0,
+        missions_created: 0,
     };
 
     client.set_profile(&profile);
@@ -302,13 +281,13 @@ fn test_revoke_attestation_publishes_event() {
 // -------------------------------------------------------------------------
 
 #[test]
+#[should_panic(expected = "Error(Contract, #5)")]
 fn test_get_profile_not_found() {
     let (env, contract_id, _admin) = setup_test_env();
     let client = QuidReputationContractClient::new(&env, &contract_id);
 
     let subject = Address::generate(&env);
-    let result = client.try_get_profile(&subject);
-    assert_eq!(result, Err(Ok(ReputationError::ProfileNotFound)));
+    client.get_profile(&subject);
 }
 
 #[test]
