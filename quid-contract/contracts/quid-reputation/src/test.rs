@@ -1,7 +1,10 @@
 #![cfg(test)]
 
-use super::*;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
+
+use crate::{
+    error::ReputationError, types::Profile, QuidReputationContract, QuidReputationContractClient,
+};
 
 fn setup_test_env() -> (Env, Address, Address) {
     let env = Env::default();
@@ -15,6 +18,10 @@ fn setup_test_env() -> (Env, Address, Address) {
 
     (env, contract_id, admin)
 }
+
+// -------------------------------------------------------------------------
+// Admin bootstrap tests
+// -------------------------------------------------------------------------
 
 #[test]
 fn test_initialize() {
@@ -31,6 +38,10 @@ fn test_initialize() {
     let stored_admin = client.get_admin();
     assert_eq!(stored_admin, admin);
 }
+
+// -------------------------------------------------------------------------
+// Attestation tests
+// -------------------------------------------------------------------------
 
 #[test]
 fn test_issue_attestation() {
@@ -68,7 +79,6 @@ fn test_revoke_attestation_by_issuer() {
 
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
-    // Issuer revokes their own attestation
     client.revoke_attestation(&issuer, &attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
@@ -88,7 +98,6 @@ fn test_revoke_attestation_by_admin() {
 
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
-    // Admin revokes the attestation
     client.revoke_attestation(&admin, &attestation_id);
 
     let attestation = client.get_attestation(&attestation_id);
@@ -110,7 +119,6 @@ fn test_revoke_attestation_unauthorized() {
 
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
-    // Unauthorized user tries to revoke
     client.revoke_attestation(&unauthorized, &attestation_id);
 }
 
@@ -128,10 +136,7 @@ fn test_revoke_already_revoked_attestation() {
 
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
-    // Revoke once
     client.revoke_attestation(&issuer, &attestation_id);
-
-    // Try to revoke again
     client.revoke_attestation(&issuer, &attestation_id);
 }
 
@@ -171,4 +176,56 @@ fn test_attestation_exists() {
     let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
 
     assert!(client.attestation_exists(&attestation_id));
+}
+
+// -------------------------------------------------------------------------
+// Profile helper tests
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_get_profile_not_found() {
+    let (env, contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &contract_id);
+
+    let subject = Address::generate(&env);
+    let result = client.try_get_profile(&subject);
+    assert_eq!(result, Err(Ok(ReputationError::ProfileNotFound)));
+}
+
+#[test]
+fn test_store_and_get_profile() {
+    let (env, contract_id, _admin) = setup_test_env();
+    let client = QuidReputationContractClient::new(&env, &contract_id);
+
+    let subject = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        let profile = Profile {
+            subject: subject.clone(),
+            score: 42,
+            missions_completed: 3,
+            missions_created: 1,
+        };
+        QuidReputationContract::store_profile(&env, &profile);
+    });
+
+    let fetched = client.get_profile(&subject);
+    assert_eq!(fetched.score, 42);
+    assert_eq!(fetched.missions_completed, 3);
+    assert_eq!(fetched.missions_created, 1);
+}
+
+#[test]
+fn test_load_or_default_returns_zeroed_profile() {
+    let (env, contract_id, _admin) = setup_test_env();
+
+    let subject = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        let profile = QuidReputationContract::load_or_default(&env, subject.clone());
+        assert_eq!(profile.subject, subject);
+        assert_eq!(profile.score, 0);
+        assert_eq!(profile.missions_completed, 0);
+        assert_eq!(profile.missions_created, 0);
+    });
 }
