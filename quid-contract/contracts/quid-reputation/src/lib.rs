@@ -1,4 +1,5 @@
 #![no_std]
+
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 mod error;
@@ -7,12 +8,19 @@ mod types;
 use error::ReputationError;
 use types::{Attestation, DataKey, Profile};
 
+/// TTL extension applied to every profile write (roughly 60 days in ledgers).
+const PROFILE_TTL_LEDGERS: u32 = 5_184_000;
+
 #[contract]
 pub struct QuidReputationContract;
 
 #[contractimpl]
 impl QuidReputationContract {
-    /// Initialize the contract with an admin address
+    // -------------------------------------------------------------------------
+    // Admin bootstrap
+    // -------------------------------------------------------------------------
+
+    /// Initialize the contract with an admin address. May only be called once.
     pub fn initialize(env: Env, admin: Address) -> Result<(), ReputationError> {
         admin.require_auth();
 
@@ -24,7 +32,7 @@ impl QuidReputationContract {
         Ok(())
     }
 
-    /// Get the admin address
+    /// Get the admin address.
     pub fn get_admin(env: Env) -> Result<Address, ReputationError> {
         env.storage()
             .instance()
@@ -32,7 +40,11 @@ impl QuidReputationContract {
             .ok_or(ReputationError::NotAuthorized)
     }
 
-    /// Issue a new attestation
+    // -------------------------------------------------------------------------
+    // Attestations
+    // -------------------------------------------------------------------------
+
+    /// Issue a new attestation.
     pub fn issue_attestation(
         env: Env,
         issuer: Address,
@@ -68,7 +80,7 @@ impl QuidReputationContract {
         Ok(attestation_id)
     }
 
-    /// Get an attestation by ID
+    /// Get an attestation by ID.
     pub fn get_attestation(env: Env, attestation_id: u64) -> Result<Attestation, ReputationError> {
         env.storage()
             .persistent()
@@ -76,7 +88,7 @@ impl QuidReputationContract {
             .ok_or(ReputationError::AttestationNotFound)
     }
 
-    /// Revoke an attestation (issuer or admin only)
+    /// Revoke an attestation (issuer or admin only).
     pub fn revoke_attestation(
         env: Env,
         caller: Address,
@@ -90,7 +102,6 @@ impl QuidReputationContract {
             return Err(ReputationError::AlreadyRevoked);
         }
 
-        // Allow revocation by the original issuer or the contract admin
         let admin = Self::get_admin(env.clone())?;
         if caller != attestation.issuer && caller != admin {
             return Err(ReputationError::NotAuthorized);
@@ -110,7 +121,7 @@ impl QuidReputationContract {
         Ok(())
     }
 
-    /// Get the total number of attestations
+    /// Get the total number of attestations.
     pub fn get_attestation_count(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -118,7 +129,7 @@ impl QuidReputationContract {
             .unwrap_or(0)
     }
 
-    /// Check if an attestation exists
+    /// Check if an attestation exists.
     pub fn attestation_exists(env: Env, attestation_id: u64) -> bool {
         env.storage()
             .persistent()
@@ -165,6 +176,57 @@ impl QuidReputationContract {
             .instance()
             .set(&DataKey::AttestationCount, &count);
         count
+    }
+}
+
+// -------------------------------------------------------------------------
+// Internal helpers (used by every profile mutation path)
+// -------------------------------------------------------------------------
+
+#[allow(dead_code)]
+impl QuidReputationContract {
+    /// Require that `caller` is the bootstrapped admin.
+    /// Returns `NotAuthorized` if no admin has been bootstrapped yet or the
+    /// caller does not match.
+    pub(crate) fn require_admin(env: &Env, caller: &Address) -> Result<(), ReputationError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ReputationError::NotAuthorized)?;
+
+        admin.require_auth();
+
+        if *caller != admin {
+            return Err(ReputationError::NotAuthorized);
+        }
+
+        Ok(())
+    }
+
+    /// Persist `profile` to persistent storage and extend its TTL.
+    pub(crate) fn store_profile(env: &Env, profile: &Profile) {
+        let key = DataKey::Profile(profile.subject.clone());
+        env.storage().persistent().set(&key, profile);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PROFILE_TTL_LEDGERS, PROFILE_TTL_LEDGERS);
+    }
+
+    /// Load the profile for `subject`, returning a zeroed default when none
+    /// exists yet. Mutation methods should call this instead of `get_profile`
+    /// so that a missing profile is treated as a fresh slate rather than an
+    /// error.
+    pub(crate) fn load_or_default(env: &Env, subject: Address) -> Profile {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Profile(subject.clone()))
+            .unwrap_or(Profile {
+                subject,
+                score: 0,
+                missions_completed: 0,
+                missions_created: 0,
+            })
     }
 }
 
