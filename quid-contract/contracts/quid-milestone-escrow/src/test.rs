@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use crate::types::{Milestone, MilestoneStatus, Program, ProgramStatus};
+use crate::types::{MilestoneStatus, ProgramStatus};
 use soroban_sdk::{
     testutils::{Address as _, Events},
     token::{Client as TokenClient, StellarAssetClient},
@@ -187,183 +187,391 @@ fn test_get_program_not_found() {
 }
 
 #[test]
-fn test_reviewer_approval_flow() {
-    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
-    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
-    let _token_client = TokenClient::new(&env, &token_address);
-
-    let recipient = Address::generate(&env);
-    let reviewer = Address::generate(&env);
-
-    // Simulate program creation with reviewer
-    let _program = Program {
-        id: 1,
-        sponsor: sponsor.clone(),
-        recipient: recipient.clone(),
-        reviewer: Some(reviewer.clone()),
-        token: token_address.clone(),
-        total_amount: 10_000,
-        allocated_amount: 0,
-        released_amount: 0,
-        milestone_count: 0,
-        metadata_cid: Some(String::from_str(&env, "QmProgram")),
-        created_at: env.ledger().timestamp(),
-        status: ProgramStatus::Active,
-    };
-
-    // Simulate milestone creation
-    let _milestone = Milestone {
-        id: 1,
-        program_id: 1,
-        title: String::from_str(&env, "Milestone 1"),
-        amount: 5_000,
-        due_at: env.ledger().timestamp() + 86400,
-        metadata_cid: String::from_str(&env, "QmMilestone1"),
-        status: MilestoneStatus::Pending,
-    };
-
-    // Set initial milestone status to Pending
-    client.set_milestone_status(&MilestoneStatus::Pending);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Pending);
-
-    // Reviewer approves the milestone
-    client.set_milestone_status(&MilestoneStatus::Approved);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Approved);
-
-    // Verify program remains active
-    client.set_program_status(&ProgramStatus::Active);
-    assert_eq!(client.get_program_status(), ProgramStatus::Active);
-
-    // Simulate payment after approval
-    client.set_milestone_status(&MilestoneStatus::Paid);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Paid);
-
-    // Verify recipient would receive funds (in full implementation)
-    // This test demonstrates the expected flow:
-    // 1. Milestone starts as Pending
-    // 2. Reviewer approves -> Approved
-    // 3. Payment is processed -> Paid
-    // 4. Program remains Active for next milestones
-}
-
-#[test]
-fn test_cancel_program_with_refund() {
+fn test_approve_milestone_by_sponsor() {
     let (env, contract_id, sponsor, token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
     let token_client = TokenClient::new(&env, &token_address);
+    let recipient = Address::generate(&env);
+    let total_amount = 1_000_i128;
+    let milestone_amount = 400_i128;
 
-    let _recipient = Address::generate(&env);
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &None,
+        &None,
+    );
+    let milestone_id = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Phase 1"),
+        &milestone_amount,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
 
-    // Record sponsor's initial balance
-    let _sponsor_initial_balance = token_client.balance(&sponsor);
+    client.approve_milestone(&program_id, &milestone_id, &sponsor);
 
-    // Simulate program with partial allocation
-    let total_amount: i128 = 10_000;
-    let allocated_amount: i128 = 6_000; // 2 milestones funded
-    let _released_amount: i128 = 3_000; // 1 milestone paid
-    let unfunded_remainder = total_amount - allocated_amount; // 4_000 should be refunded
+    let milestone = client.get_milestone(&program_id, &milestone_id);
+    assert_eq!(milestone.status, MilestoneStatus::Paid);
 
-    // Set program to Active initially
-    client.set_program_status(&ProgramStatus::Active);
-    assert_eq!(client.get_program_status(), ProgramStatus::Active);
-
-    // Sponsor cancels the program
-    client.set_program_status(&ProgramStatus::Cancelled);
-    assert_eq!(client.get_program_status(), ProgramStatus::Cancelled);
-
-    // In a full implementation, the contract would:
-    // 1. Calculate unfunded remainder: total_amount - allocated_amount
-    // 2. Refund unfunded_remainder to sponsor
-    // 3. Keep allocated but unreleased funds in escrow
-    // 4. Mark program as Cancelled
-
-    // Verify the expected refund amount
-    let expected_refund = unfunded_remainder;
-    assert_eq!(expected_refund, 4_000);
-
-    // Verify cancelled milestones
-    client.set_milestone_status(&MilestoneStatus::Cancelled);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Cancelled);
-
-    // This test demonstrates the expected cancellation flow:
-    // 1. Program is Active with partial funding
-    // 2. Sponsor cancels -> Cancelled status
-    // 3. Unfunded remainder (4,000) is refunded to sponsor
-    // 4. Allocated but unreleased funds (3,000) remain in escrow
-    // 5. Pending milestones are marked as Cancelled
+    let program = client.get_program(&program_id);
+    assert_eq!(program.released_amount, milestone_amount);
+    assert_eq!(program.status, ProgramStatus::Active);
+    assert_eq!(token_client.balance(&recipient), milestone_amount);
 }
 
 #[test]
-fn test_cancel_program_no_refund_when_fully_allocated() {
-    let (env, contract_id, _sponsor, token_address, _) = setup_test_env();
+fn test_cancel_program_refunds_unreleased_funds() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
-    let _token_client = TokenClient::new(&env, &token_address);
+    let token_client = TokenClient::new(&env, &token_address);
+    let recipient = Address::generate(&env);
+    let total_amount = 1_000_i128;
+    let milestone_amount = 300_i128;
 
-    // Simulate fully allocated program
-    let total_amount: i128 = 10_000;
-    let allocated_amount: i128 = 10_000; // All funds allocated
-    let unfunded_remainder = total_amount - allocated_amount; // 0
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &None,
+        &None,
+    );
+    let milestone_id = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Phase 1"),
+        &milestone_amount,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
+    // Pay out one milestone so released_amount = 300
+    client.approve_milestone(&program_id, &milestone_id, &sponsor);
 
-    // Set program to Active
-    client.set_program_status(&ProgramStatus::Active);
+    let sponsor_balance_before = token_client.balance(&sponsor);
+    client.cancel_program(&program_id, &sponsor);
 
-    // Cancel the program
-    client.set_program_status(&ProgramStatus::Cancelled);
-    assert_eq!(client.get_program_status(), ProgramStatus::Cancelled);
+    let program = client.get_program(&program_id);
+    assert_eq!(program.status, ProgramStatus::Cancelled);
 
-    // Verify no refund is expected when fully allocated
-    assert_eq!(unfunded_remainder, 0);
-
-    // This test demonstrates:
-    // 1. When all funds are allocated to milestones
-    // 2. Cancellation results in no refund (unfunded_remainder = 0)
-    // 3. All allocated funds remain in escrow for milestone completion
+    // Refund = total_amount - released_amount = 1000 - 300 = 700
+    let expected_refund = total_amount - milestone_amount;
+    assert_eq!(
+        token_client.balance(&sponsor),
+        sponsor_balance_before + expected_refund
+    );
 }
 
 #[test]
-fn test_reviewer_approval_required_before_payment() {
-    let (env, contract_id, _sponsor, _token_address, _) = setup_test_env();
+fn test_approve_milestone_by_reviewer() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+    let recipient = Address::generate(&env);
+    let reviewer = Address::generate(&env);
+    let total_amount = 1_000_i128;
+    let milestone_amount = 400_i128;
 
-    // Milestone starts as Pending
-    client.set_milestone_status(&MilestoneStatus::Pending);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Pending);
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &Some(reviewer.clone()),
+        &None,
+    );
+    let milestone_id = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Phase 1"),
+        &milestone_amount,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
 
-    // Cannot go directly to Paid without Approval
-    // In full implementation, this would be enforced by the contract
-    // Expected flow: Pending -> Approved -> Paid
+    // Reviewer (not sponsor) approves the milestone
+    client.approve_milestone(&program_id, &milestone_id, &reviewer);
 
-    // Correct flow: Approve first
-    client.set_milestone_status(&MilestoneStatus::Approved);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Approved);
+    let milestone = client.get_milestone(&program_id, &milestone_id);
+    assert_eq!(milestone.status, MilestoneStatus::Paid);
+    assert_eq!(token_client.balance(&recipient), milestone_amount);
 
-    // Then pay
-    client.set_milestone_status(&MilestoneStatus::Paid);
-    assert_eq!(client.get_milestone_status(), MilestoneStatus::Paid);
-
-    // This test demonstrates the required approval flow:
-    // 1. Milestone must be Approved by reviewer
-    // 2. Only then can it transition to Paid
+    // Reviewer is still stored (not consumed)
+    let program = client.get_program(&program_id);
+    assert_eq!(program.reviewer, Some(reviewer));
 }
 
 #[test]
-fn test_program_completion_after_all_milestones_paid() {
-    let (env, contract_id, _sponsor, _token_address, _) = setup_test_env();
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_approve_milestone_unauthorized_fails() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
     let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    let intruder = Address::generate(&env);
 
-    // Program starts Active
-    client.set_program_status(&ProgramStatus::Active);
-    assert_eq!(client.get_program_status(), ProgramStatus::Active);
+    let program_id =
+        client.create_program(&sponsor, &recipient, &token_address, &1_000, &None, &None);
+    let milestone_id = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Phase 1"),
+        &400,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
 
-    // Simulate all milestones being paid
-    client.set_milestone_status(&MilestoneStatus::Paid);
+    // Intruder is neither sponsor nor reviewer – must be rejected
+    client.approve_milestone(&program_id, &milestone_id, &intruder);
+}
 
-    // Program transitions to Completed
-    client.set_program_status(&ProgramStatus::Completed);
-    assert_eq!(client.get_program_status(), ProgramStatus::Completed);
+#[test]
+fn test_approve_milestone_completes_program() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
+    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    let total_amount = 500_i128;
 
-    // This test demonstrates:
-    // 1. Program starts Active
-    // 2. After all milestones are Paid
-    // 3. Program transitions to Completed
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &None,
+        &None,
+    );
+    // Single milestone covering the full funded amount
+    let milestone_id = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Full work"),
+        &total_amount,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
+
+    client.approve_milestone(&program_id, &milestone_id, &sponsor);
+
+    let program = client.get_program(&program_id);
+    assert_eq!(program.released_amount, total_amount);
+    assert_eq!(program.status, ProgramStatus::Completed);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_cancel_program_non_active_fails() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
+    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+
+    let program_id =
+        client.create_program(&sponsor, &recipient, &token_address, &500, &None, &None);
+    client.cancel_program(&program_id, &sponsor);
+    // Second cancel on a Cancelled program must fail with InvalidState
+    client.cancel_program(&program_id, &sponsor);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_cancel_program_unauthorized_fails() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
+    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    let intruder = Address::generate(&env);
+
+    let program_id =
+        client.create_program(&sponsor, &recipient, &token_address, &500, &None, &None);
+    // Intruder is not the sponsor – must be rejected
+    client.cancel_program(&program_id, &intruder);
+}
+
+// ── Issue #184: Milestone escrow happy path tests ──────────────────────────
+
+/// Full end-to-end happy path:
+/// fund program → add two milestones → sponsor approves both → program completes.
+#[test]
+fn test_happy_path_two_milestones_full_release() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
+    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+    let recipient = Address::generate(&env);
+
+    let total_amount = 1_000_i128;
+    let amount_m1 = 600_i128;
+    let amount_m2 = 400_i128;
+
+    // ── 1. Create funded program ──────────────────────────────────────────
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &None,
+        &Some(String::from_str(&env, "QmProgram")),
+    );
+
+    let program = client.get_program(&program_id);
+    assert_eq!(program.status, ProgramStatus::Active);
+    assert_eq!(program.total_amount, total_amount);
+    assert_eq!(program.released_amount, 0);
+    assert_eq!(token_client.balance(&contract_id), total_amount);
+
+    // ── 2. Add two milestones ─────────────────────────────────────────────
+    let m1 = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Milestone 1"),
+        &amount_m1,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
+    let m2 = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Milestone 2"),
+        &amount_m2,
+        &1_750_086_400,
+        &String::from_str(&env, "QmM2"),
+    );
+
+    let program = client.get_program(&program_id);
+    assert_eq!(program.allocated_amount, total_amount);
+    assert_eq!(program.milestone_count, 2);
+
+    // ── 3. Approve milestone 1 ────────────────────────────────────────────
+    client.approve_milestone(&program_id, &m1, &sponsor);
+
+    assert_eq!(
+        client.get_milestone(&program_id, &m1).status,
+        MilestoneStatus::Paid
+    );
+    let program = client.get_program(&program_id);
+    assert_eq!(program.released_amount, amount_m1);
+    assert_eq!(program.status, ProgramStatus::Active); // still active
+    assert_eq!(token_client.balance(&recipient), amount_m1);
+    assert_eq!(token_client.balance(&contract_id), total_amount - amount_m1);
+
+    // ── 4. Approve milestone 2 → program completes ────────────────────────
+    client.approve_milestone(&program_id, &m2, &sponsor);
+
+    assert_eq!(
+        client.get_milestone(&program_id, &m2).status,
+        MilestoneStatus::Paid
+    );
+    let program = client.get_program(&program_id);
+    assert_eq!(program.released_amount, total_amount);
+    assert_eq!(program.status, ProgramStatus::Completed);
+    assert_eq!(token_client.balance(&recipient), total_amount);
+    assert_eq!(token_client.balance(&contract_id), 0);
+}
+
+/// Happy path with a reviewer: reviewer approves each milestone in turn,
+/// the reviewer field is preserved after each approval (not consumed).
+#[test]
+fn test_happy_path_reviewer_approves_multiple_milestones() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
+    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+    let recipient = Address::generate(&env);
+    let reviewer = Address::generate(&env);
+
+    let total_amount = 800_i128;
+    let amount_m1 = 500_i128;
+    let amount_m2 = 300_i128;
+
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &Some(reviewer.clone()),
+        &None,
+    );
+
+    let m1 = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Design"),
+        &amount_m1,
+        &1_750_000_000,
+        &String::from_str(&env, "QmDesign"),
+    );
+    let m2 = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Delivery"),
+        &amount_m2,
+        &1_750_086_400,
+        &String::from_str(&env, "QmDelivery"),
+    );
+
+    // Reviewer approves first milestone
+    client.approve_milestone(&program_id, &m1, &reviewer);
+
+    assert_eq!(
+        client.get_milestone(&program_id, &m1).status,
+        MilestoneStatus::Paid
+    );
+    // Reviewer option is still present after first approval
+    assert_eq!(
+        client.get_program(&program_id).reviewer,
+        Some(reviewer.clone())
+    );
+    assert_eq!(token_client.balance(&recipient), amount_m1);
+
+    // Reviewer approves second milestone → program completes
+    client.approve_milestone(&program_id, &m2, &reviewer);
+
+    assert_eq!(
+        client.get_milestone(&program_id, &m2).status,
+        MilestoneStatus::Paid
+    );
+    let program = client.get_program(&program_id);
+    assert_eq!(program.released_amount, total_amount);
+    assert_eq!(program.status, ProgramStatus::Completed);
+    assert_eq!(program.reviewer, Some(reviewer));
+    assert_eq!(token_client.balance(&recipient), total_amount);
+    assert_eq!(token_client.balance(&contract_id), 0);
+}
+
+/// Happy path cancel: fund → add milestone → approve one → cancel → refund is exact.
+#[test]
+fn test_happy_path_partial_release_then_cancel() {
+    let (env, contract_id, sponsor, token_address, _) = setup_test_env();
+    let client = QuidMilestoneEscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+    let recipient = Address::generate(&env);
+
+    let total_amount = 1_000_i128;
+    let amount_m1 = 250_i128;
+
+    let program_id = client.create_program(
+        &sponsor,
+        &recipient,
+        &token_address,
+        &total_amount,
+        &None,
+        &None,
+    );
+    let m1 = client.add_milestone(
+        &program_id,
+        &String::from_str(&env, "Phase 1"),
+        &amount_m1,
+        &1_750_000_000,
+        &String::from_str(&env, "QmM1"),
+    );
+
+    client.approve_milestone(&program_id, &m1, &sponsor);
+
+    let sponsor_balance_before_cancel = token_client.balance(&sponsor);
+
+    client.cancel_program(&program_id, &sponsor);
+
+    let program = client.get_program(&program_id);
+    assert_eq!(program.status, ProgramStatus::Cancelled);
+    assert_eq!(program.released_amount, amount_m1);
+
+    // Refund = total_amount - released_amount = 1000 - 250 = 750
+    let expected_refund = total_amount - amount_m1;
+    assert_eq!(
+        token_client.balance(&sponsor),
+        sponsor_balance_before_cancel + expected_refund
+    );
+    // Contract holds nothing after refund
+    assert_eq!(token_client.balance(&contract_id), 0);
+    // Recipient received only what was paid before cancellation
+    assert_eq!(token_client.balance(&recipient), amount_m1);
 }
