@@ -230,27 +230,4 @@ impl QuidReputationContract {
     }
 }
 
-mod test;file);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PROFILE_TTL_LEDGERS, PROFILE_TTL_LEDGERS);
-    }
-
-    /// Load the profile for `subject`, returning a zeroed default when none
-    /// exists yet. Mutation methods should call this instead of `get_profile`
-    /// so that a missing profile is treated as a fresh slate rather than an
-    /// error.
-    pub(crate) fn load_or_default(env: &Env, subject: Address) -> Profile {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Profile(subject.clone()))
-            .unwrap_or(Profile {
-                subject,
-                score: 0,
-                missions_completed: 0,
-                missions_created: 0,
-            })
-    }
-}
-
 mod test;
