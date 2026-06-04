@@ -1,13 +1,11 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, Address, Env};
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 mod error;
 mod types;
 
 use error::ReputationError;
-use types::{DataKey, ReputationProfile};
 use types::{Attestation, DataKey, Profile};
 
 /// TTL extension applied to every profile write (roughly 60 days in ledgers).
@@ -18,17 +16,6 @@ pub struct QuidReputationContract;
 
 #[contractimpl]
 impl QuidReputationContract {
-    // -----------------------------------------------------------------------
-    // Admin bootstrap
-    // -----------------------------------------------------------------------
-
-    /// Bootstrap the contract admin.  Can only be called once; subsequent
-    /// calls return `AdminAlreadySet`.
-    pub fn set_admin(env: Env, admin: Address) -> Result<(), ReputationError> {
-        admin.require_auth();
-
-        if env.storage().instance().has(&DataKey::Admin) {
-            return Err(ReputationError::AdminAlreadySet);
     // -------------------------------------------------------------------------
     // Admin bootstrap
     // -------------------------------------------------------------------------
@@ -45,7 +32,6 @@ impl QuidReputationContract {
         Ok(())
     }
 
-    /// Return the current admin address.
     /// Get the admin address.
     pub fn get_admin(env: Env) -> Result<Address, ReputationError> {
         env.storage()
@@ -54,25 +40,6 @@ impl QuidReputationContract {
             .ok_or(ReputationError::NotAuthorized)
     }
 
-    // -----------------------------------------------------------------------
-    // Profile management
-    // -----------------------------------------------------------------------
-
-    /// Create or fully replace a reputation profile for `owner`.
-    /// Only the admin may call this.
-    pub fn upsert_profile(
-        env: Env,
-        owner: Address,
-        success_count: u32,
-        rejection_count: u32,
-    ) -> Result<(), ReputationError> {
-        Self::require_admin(&env)?;
-
-        let profile = ReputationProfile {
-            owner: owner.clone(),
-            success_count,
-            rejection_count,
-            last_updated: env.ledger().timestamp(),
     // -------------------------------------------------------------------------
     // Attestations
     // -------------------------------------------------------------------------
@@ -102,43 +69,6 @@ impl QuidReputationContract {
 
         env.storage()
             .persistent()
-            .set(&DataKey::Profile(owner.clone()), &profile);
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Profile(owner), 5_184_000, 5_184_000);
-
-        Ok(())
-    }
-
-    /// Fetch the reputation profile for `owner`.
-    pub fn get_profile(env: Env, owner: Address) -> Result<ReputationProfile, ReputationError> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Profile(owner))
-            .ok_or(ReputationError::ProfileNotFound)
-    }
-
-    // -----------------------------------------------------------------------
-    // Mutation helpers
-    // -----------------------------------------------------------------------
-
-    /// Increment the `success_count` of an existing profile by one.
-    /// Only the admin may call this.
-    pub fn increment_success(env: Env, owner: Address) -> Result<(), ReputationError> {
-        Self::require_admin(&env)?;
-
-        let mut profile = Self::get_profile(env.clone(), owner.clone())?;
-        profile.success_count = profile.success_count.saturating_add(1);
-        profile.last_updated = env.ledger().timestamp();
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Profile(owner.clone()), &profile);
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Profile(owner), 5_184_000, 5_184_000);
             .set(&DataKey::Attestation(attestation_id), &attestation);
 
         env.storage().persistent().extend_ttl(
@@ -191,22 +121,6 @@ impl QuidReputationContract {
         Ok(())
     }
 
-    /// Increment the `rejection_count` of an existing profile by one.
-    /// Only the admin may call this.
-    pub fn record_rejection(env: Env, owner: Address) -> Result<(), ReputationError> {
-        Self::require_admin(&env)?;
-
-        let mut profile = Self::get_profile(env.clone(), owner.clone())?;
-        profile.rejection_count = profile.rejection_count.saturating_add(1);
-        profile.last_updated = env.ledger().timestamp();
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Profile(owner.clone()), &profile);
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Profile(owner), 5_184_000, 5_184_000);
     /// Get the total number of attestations.
     pub fn get_attestation_count(env: Env) -> u64 {
         env.storage()
@@ -245,11 +159,6 @@ impl QuidReputationContract {
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
-
-    fn require_admin(env: &Env) -> Result<(), ReputationError> {
     /// Check if a profile exists
     pub fn profile_exists(env: Env, subject: Address) -> bool {
         env.storage().persistent().has(&DataKey::Profile(subject))
@@ -287,8 +196,6 @@ impl QuidReputationContract {
             .ok_or(ReputationError::NotAuthorized)?;
 
         admin.require_auth();
-        Ok(())
-    }
 
         if *caller != admin {
             return Err(ReputationError::NotAuthorized);
@@ -301,6 +208,29 @@ impl QuidReputationContract {
     pub(crate) fn store_profile(env: &Env, profile: &Profile) {
         let key = DataKey::Profile(profile.subject.clone());
         env.storage().persistent().set(&key, profile);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PROFILE_TTL_LEDGERS, PROFILE_TTL_LEDGERS);
+    }
+
+    /// Load the profile for `subject`, returning a zeroed default when none
+    /// exists yet. Mutation methods should call this instead of `get_profile`
+    /// so that a missing profile is treated as a fresh slate rather than an
+    /// error.
+    pub(crate) fn load_or_default(env: &Env, subject: Address) -> Profile {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Profile(subject.clone()))
+            .unwrap_or(Profile {
+                subject,
+                score: 0,
+                missions_completed: 0,
+                missions_created: 0,
+            })
+    }
+}
+
+mod test;file);
         env.storage()
             .persistent()
             .extend_ttl(&key, PROFILE_TTL_LEDGERS, PROFILE_TTL_LEDGERS);
