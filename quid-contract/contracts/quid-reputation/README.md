@@ -1,119 +1,141 @@
 # Quid Reputation Contract
 
-A Soroban smart contract for managing attestations on the Stellar blockchain.
 
-## Overview
-
-The Quid Reputation Contract allows issuers to create attestations for subjects, which can be used to build reputation systems. Attestations can be revoked by either the original issuer or the contract admin.
+The Quid Reputation contract implements an on-chain attestation system for tracking contributor activity and reputation.
 
 ## Features
 
-- **Initialize**: Set up the contract with an admin address
-- **Issue Attestation**: Create new attestations for subjects
-- **Revoke Attestation**: Revoke attestations (issuer or admin only)
-- **Query Attestations**: Retrieve attestation details and check existence
+- **Issue Attestations**: Create portable attestations for contributor activity with metadata and optional expiry
+- **Revoke Attestations**: Issuers can revoke attestations they've issued
+- **Admin Management**: Bootstrap and manage contract admin
+- **Event Logging**: Publish events when attestations are issued or revoked
 
-## Contract Structure
+## API
 
-```
-quid-reputation/
-├── Cargo.toml          # Package configuration
-├── Makefile            # Build and test commands
-├── README.md           # This file
-└── src/
-    ├── lib.rs          # Main contract implementation
-    ├── types.rs        # Data structures and storage keys
-    ├── error.rs        # Error definitions
-    └── test.rs         # Unit tests
-```
+### `bootstrap_admin(env, admin) -> Result<(), QuidError>`
 
-## Data Types
+Initialize the contract admin. Can only be called once.
+
+**Parameters:**
+
+- `env`: Soroban environment
+- `admin`: Address of the admin
+
+**Returns:**
+
+- `Ok(())` on success
+- `Err(QuidError::NotAuthorized)` if admin is already set
+
+---
+
+### `get_admin(env) -> Result<Address, QuidError>`
+
+Get the current contract admin.
+
+**Parameters:**
+
+- `env`: Soroban environment
+
+**Returns:**
+
+- `Ok(Address)` - The admin address
+- `Err(QuidError::AdminNotSet)` if no admin is set
+
+---
+
+### `issue_attestation(env, issuer, subject, kind, label, metadata_cid, expires_at) -> Result<u64, QuidError>`
+
+Issue an attestation for a subject.
+
+**Parameters:**
+
+- `env`: Soroban environment
+- `issuer`: Address of the issuer (must authorize the transaction)
+- `subject`: Address of the attestation subject
+- `kind`: String describing the attestation type (e.g., "contributor", "expert")
+- `label`: String label for the attestation (must not be empty)
+- `metadata_cid`: Optional IPFS CID for additional metadata
+- `expires_at`: Optional timestamp when the attestation expires
+
+**Returns:**
+
+- `Ok(u64)` - The attestation ID
+- `Err(QuidError::NotAuthorized)` if issuer doesn't authorize
+- `Err(QuidError::InvalidLabel)` if label is empty
+- `Err(QuidError::InvalidExpiryTime)` if expiry is in the past
+
+**Events:**
+
+- Publishes `AttestationIssuedEvent` with attestation_id, issuer, and subject
+
+---
+
+### `get_attestation(env, attestation_id) -> Result<Attestation, QuidError>`
+
+Retrieve an attestation by ID.
+
+**Parameters:**
+
+- `env`: Soroban environment
+- `attestation_id`: The attestation ID
+
+**Returns:**
+
+- `Ok(Attestation)` - The attestation record
+- `Err(QuidError::AttestationNotFound)` if attestation doesn't exist
+
+---
+
+### `revoke_attestation(env, attestation_id) -> Result<(), QuidError>`
+
+Revoke an attestation (issuer only).
+
+**Parameters:**
+
+- `env`: Soroban environment
+- `attestation_id`: The attestation ID to revoke
+
+**Returns:**
+
+- `Ok(())` on success
+- `Err(QuidError::NotAuthorized)` if not the issuer
+- `Err(QuidError::AttestationNotFound)` if attestation doesn't exist
+- `Err(QuidError::AlreadyRevoked)` if already revoked
+
+**Events:**
+
+- Publishes `AttestationRevokedEvent` with attestation_id
+
+## Data Structures
 
 ### Attestation
+
 ```rust
 pub struct Attestation {
     pub id: u64,
     pub issuer: Address,
     pub subject: Address,
-    pub attestation_type: String,
-    pub data_cid: String,
+    pub kind: String,
+    pub label: String,
+    pub metadata_cid: Option<String>,
     pub issued_at: u64,
+    pub expires_at: Option<u64>,
     pub revoked: bool,
 }
 ```
 
-### Errors
-- `NotAuthorized` (1): Caller is not authorized to perform the action
-- `AttestationNotFound` (2): Attestation does not exist
-- `AlreadyRevoked` (3): Attestation has already been revoked
-- `InvalidInput` (4): Invalid input parameters
-
-## Building
-
-```bash
-make build
-```
-
-Or using cargo directly:
-```bash
-cargo build -p quid-reputation
-```
-
 ## Testing
 
+Run tests with:
+
 ```bash
-make test
+cargo test
 ```
 
-Or using cargo directly:
+## Build
+
+Build the contract with:
+
 ```bash
-cargo test -p quid-reputation
+cargo build --target wasm32-unknown-unknown --release
 ```
-
-## Usage
-
-### Initialize the Contract
-```rust
-client.initialize(&admin_address);
-```
-
-### Issue an Attestation
-```rust
-let attestation_id = client.issue_attestation(
-    &issuer,
-    &subject,
-    &attestation_type,
-    &data_cid
-);
-```
-
-### Revoke an Attestation
-```rust
-// By issuer
-client.revoke_attestation(&issuer, &attestation_id);
-
-// Or by admin
-client.revoke_attestation(&admin, &attestation_id);
-```
-
-### Get an Attestation
-```rust
-let attestation = client.get_attestation(&attestation_id);
-```
-
-## Authorization
-
-- **Initialize**: Requires authorization from the admin address
-- **Issue Attestation**: Requires authorization from the issuer
-- **Revoke Attestation**: Requires authorization from either the original issuer or the contract admin
-- **Query Operations**: No authorization required
-
-## Storage
-
-The contract uses:
-- **Instance Storage**: For admin address and attestation count
-- **Persistent Storage**: For attestation data with TTL of 5,184,000 ledgers (~60 days)
-
-## License
-
-See the main project LICENSE file.

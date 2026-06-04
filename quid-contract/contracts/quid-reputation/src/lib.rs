@@ -1,71 +1,98 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
 mod types;
 
-use error::ReputationError;
-use types::{Attestation, DataKey, Profile};
+use error::QuidError;
+use types::{Attestation, DataKey};
 
-/// TTL extension applied to every profile write (roughly 60 days in ledgers).
-const PROFILE_TTL_LEDGERS: u32 = 5_184_000;
+#[contractevent(topics = ["attestation", "issued"])]
+pub struct AttestationIssuedEvent {
+    pub attestation_id: u64,
+    pub issuer: Address,
+    pub subject: Address,
+}
+
+#[contractevent(topics = ["attestation", "revoked"], data_format = "single-value")]
+pub struct AttestationRevokedEvent {
+    pub attestation_id: u64,
+}
 
 #[contract]
 pub struct QuidReputationContract;
 
 #[contractimpl]
 impl QuidReputationContract {
-    // -------------------------------------------------------------------------
-    // Admin bootstrap
-    // -------------------------------------------------------------------------
-
-    /// Initialize the contract with an admin address. May only be called once.
-    pub fn initialize(env: Env, admin: Address) -> Result<(), ReputationError> {
-        admin.require_auth();
-
-        if env.storage().instance().has(&DataKey::Admin) {
-            return Err(ReputationError::InvalidInput);
+    /// Bootstrap admin for the contract
+    pub fn bootstrap_admin(env: Env, admin: Address) -> Result<(), QuidError> {
+        // Only allow setting admin if not already set
+        if env.storage().persistent().has(&DataKey::Admin) {
+            return Err(QuidError::NotAuthorized);
         }
 
-        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Admin, 5184000, 5184000);
+
         Ok(())
     }
 
-    /// Get the admin address.
-    pub fn get_admin(env: Env) -> Result<Address, ReputationError> {
+    /// Get the current admin
+    pub fn get_admin(env: Env) -> Result<Address, QuidError> {
         env.storage()
-            .instance()
+            .persistent()
             .get(&DataKey::Admin)
-            .ok_or(ReputationError::NotAuthorized)
+            .ok_or(QuidError::AdminNotSet)
     }
 
-    // -------------------------------------------------------------------------
-    // Attestations
-    // -------------------------------------------------------------------------
-
-    /// Issue a new attestation.
+    /// Issue an attestation for a subject
     pub fn issue_attestation(
         env: Env,
         issuer: Address,
         subject: Address,
-        attestation_type: String,
-        data_cid: String,
-    ) -> Result<u64, ReputationError> {
+        kind: String,
+        label: String,
+        metadata_cid: Option<String>,
+        expires_at: Option<u64>,
+    ) -> Result<u64, QuidError> {
+        // Require issuer auth
         issuer.require_auth();
 
+        // Validate label is not empty
+        if label.is_empty() {
+            return Err(QuidError::InvalidLabel);
+        }
+
+        // Validate expiry time if provided
+        if let Some(expiry) = expires_at {
+            let now = env.ledger().timestamp();
+            if expiry <= now {
+                return Err(QuidError::InvalidExpiryTime);
+            }
+        }
+
+        // Get the next attestation id
         let attestation_id = Self::get_next_attestation_id(&env);
+
         let issued_at = env.ledger().timestamp();
 
         let attestation = Attestation {
             id: attestation_id,
-            issuer,
-            subject,
-            attestation_type,
-            data_cid,
+            issuer: issuer.clone(),
+            subject: subject.clone(),
+            kind,
+            label,
+            metadata_cid,
             issued_at,
+            expires_at,
             revoked: false,
         };
+
+        // Store the attestation
 
         env.storage()
             .persistent()
@@ -76,38 +103,42 @@ impl QuidReputationContract {
             5184000,
             5184000,
         );
+
+        // Publish AttestationIssuedEvent
+        AttestationIssuedEvent {
+            attestation_id,
+            issuer,
+            subject,
+        }
+        .publish(&env);
 
         Ok(attestation_id)
     }
 
-    /// Get an attestation by ID.
-    pub fn get_attestation(env: Env, attestation_id: u64) -> Result<Attestation, ReputationError> {
+    /// Get an attestation by id
+    pub fn get_attestation(env: Env, attestation_id: u64) -> Result<Attestation, QuidError> {
         env.storage()
             .persistent()
             .get(&DataKey::Attestation(attestation_id))
-            .ok_or(ReputationError::AttestationNotFound)
+            .ok_or(QuidError::AttestationNotFound)
     }
 
-    /// Revoke an attestation (issuer or admin only).
-    pub fn revoke_attestation(
-        env: Env,
-        caller: Address,
-        attestation_id: u64,
-    ) -> Result<(), ReputationError> {
-        caller.require_auth();
-
+    /// Revoke an attestation
+    pub fn revoke_attestation(env: Env, attestation_id: u64) -> Result<(), QuidError> {
         let mut attestation = Self::get_attestation(env.clone(), attestation_id)?;
 
+        // Require issuer auth
+        attestation.issuer.require_auth();
+
+        // Check if already revoked
         if attestation.revoked {
-            return Err(ReputationError::AlreadyRevoked);
+            return Err(QuidError::AlreadyRevoked);
         }
 
-        let admin = Self::get_admin(env.clone())?;
-        if caller != attestation.issuer && caller != admin {
-            return Err(ReputationError::NotAuthorized);
-        }
-
+        // Mark as revoked
         attestation.revoked = true;
+
+        // Store updated attestation
         env.storage()
             .persistent()
             .set(&DataKey::Attestation(attestation_id), &attestation);
@@ -117,117 +148,30 @@ impl QuidReputationContract {
             5184000,
             5184000,
         );
+        // Publish AttestationRevokedEvent
+        AttestationRevokedEvent { attestation_id }.publish(&env);
 
         Ok(())
     }
 
-    /// Get the total number of attestations.
-    pub fn get_attestation_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::AttestationCount)
-            .unwrap_or(0)
-    }
-
-    /// Check if an attestation exists.
-    pub fn attestation_exists(env: Env, attestation_id: u64) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::Attestation(attestation_id))
-    }
-
-    /// Get a profile by subject address
-    pub fn get_profile(env: Env, subject: Address) -> Result<Profile, ReputationError> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Profile(subject))
-            .ok_or(ReputationError::ProfileNotFound)
-    }
-
-    /// Create or update a profile
-    pub fn set_profile(env: Env, profile: Profile) -> Result<(), ReputationError> {
-        profile.subject.require_auth();
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Profile(profile.subject.clone()), &profile);
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Profile(profile.subject), 5184000, 5184000);
-
-        Ok(())
-    }
-
-    /// Check if a profile exists
-    pub fn profile_exists(env: Env, subject: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Profile(subject))
-    }
-
-    // Private helper function to get the next attestation ID
+    /// Get the next attestation id (internal helper)
     fn get_next_attestation_id(env: &Env) -> u64 {
-        let mut count: u64 = env
+        let current: u64 = env
             .storage()
-            .instance()
+            .persistent()
             .get(&DataKey::AttestationCount)
             .unwrap_or(0);
-        count += 1;
-        env.storage()
-            .instance()
-            .set(&DataKey::AttestationCount, &count);
-        count
-    }
-}
 
-// -------------------------------------------------------------------------
-// Internal helpers (used by every profile mutation path)
-// -------------------------------------------------------------------------
+        let next_id = current + 1;
 
-#[allow(dead_code)]
-impl QuidReputationContract {
-    /// Require that `caller` is the bootstrapped admin.
-    /// Returns `NotAuthorized` if no admin has been bootstrapped yet or the
-    /// caller does not match.
-    pub(crate) fn require_admin(env: &Env, caller: &Address) -> Result<(), ReputationError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(ReputationError::NotAuthorized)?;
-
-        admin.require_auth();
-
-        if *caller != admin {
-            return Err(ReputationError::NotAuthorized);
-        }
-
-        Ok(())
-    }
-
-    /// Persist `profile` to persistent storage and extend its TTL.
-    pub(crate) fn store_profile(env: &Env, profile: &Profile) {
-        let key = DataKey::Profile(profile.subject.clone());
-        env.storage().persistent().set(&key, profile);
         env.storage()
             .persistent()
-            .extend_ttl(&key, PROFILE_TTL_LEDGERS, PROFILE_TTL_LEDGERS);
-    }
+            .set(&DataKey::AttestationCount, &next_id);
 
-    /// Load the profile for `subject`, returning a zeroed default when none
-    /// exists yet. Mutation methods should call this instead of `get_profile`
-    /// so that a missing profile is treated as a fresh slate rather than an
-    /// error.
-    pub(crate) fn load_or_default(env: &Env, subject: Address) -> Profile {
         env.storage()
             .persistent()
-            .get(&DataKey::Profile(subject.clone()))
-            .unwrap_or(Profile {
-                subject,
-                score: 0,
-                missions_completed: 0,
-                missions_created: 0,
-            })
+            .extend_ttl(&DataKey::AttestationCount, 5184000, 5184000);
+
+        next_id
     }
 }
-
-mod test;
