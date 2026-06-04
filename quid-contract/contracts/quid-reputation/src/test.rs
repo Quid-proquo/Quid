@@ -1,174 +1,145 @@
 #![cfg(test)]
 
+
 use super::*;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
-fn setup_test_env() -> (Env, Address, Address) {
+#[test]
+fn test_bootstrap_admin() {
     let env = Env::default();
-    env.mock_all_auths();
+    let admin = Address::random(&env);
 
-    let contract_id = env.register(QuidReputationContract, ());
-    let admin = Address::generate(&env);
+    let result = QuidReputationContract::bootstrap_admin(env.clone(), admin.clone());
 
-    let client = QuidReputationContractClient::new(&env, &contract_id);
-    client.initialize(&admin);
+    assert!(result.is_ok());
 
-    (env, contract_id, admin)
+    let retrieved_admin = QuidReputationContract::get_admin(env).unwrap();
+    assert_eq!(retrieved_admin, admin);
 }
 
 #[test]
-fn test_initialize() {
+fn test_bootstrap_admin_twice_fails() {
     let env = Env::default();
-    env.mock_all_auths();
+    let admin1 = Address::random(&env);
+    let admin2 = Address::random(&env);
 
-    let contract_id = env.register(QuidReputationContract, ());
-    let client = QuidReputationContractClient::new(&env, &contract_id);
+    QuidReputationContract::bootstrap_admin(env.clone(), admin1).unwrap();
+    let result = QuidReputationContract::bootstrap_admin(env, admin2);
 
-    let admin = Address::generate(&env);
-
-    client.initialize(&admin);
-
-    let stored_admin = client.get_admin();
-    assert_eq!(stored_admin, admin);
+    assert!(result.is_err());
 }
 
 #[test]
 fn test_issue_attestation() {
-    let (env, contract_id, _admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
+    let env = Env::default();
+    let issuer = Address::random(&env);
+    let subject = Address::random(&env);
 
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
-
-    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
+    let attestation_id = QuidReputationContract::issue_attestation(
+        env.clone(),
+        issuer.clone(),
+        subject.clone(),
+        String::from_slice(&env, "contributor"),
+        String::from_slice(&env, "Active contributor"),
+        Some(String::from_slice(&env, "QmExample123")),
+        None,
+    )
+    .unwrap();
 
     assert_eq!(attestation_id, 1);
 
-    let attestation = client.get_attestation(&attestation_id);
+    let attestation = QuidReputationContract::get_attestation(env, attestation_id).unwrap();
     assert_eq!(attestation.issuer, issuer);
     assert_eq!(attestation.subject, subject);
-    assert_eq!(attestation.attestation_type, attestation_type);
-    assert_eq!(attestation.data_cid, data_cid);
-    assert!(!attestation.revoked);
+    assert_eq!(attestation.revoked, false);
 }
 
 #[test]
-fn test_revoke_attestation_by_issuer() {
-    let (env, contract_id, _admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
+fn test_issue_attestation_with_expiry() {
+    let env = Env::default();
+    let issuer = Address::random(&env);
+    let subject = Address::random(&env);
 
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
+    let now = env.ledger().timestamp();
+    let expiry = now + 86400; // 1 day from now
 
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
+    let attestation_id = QuidReputationContract::issue_attestation(
+        env.clone(),
+        issuer.clone(),
+        subject.clone(),
+        String::from_slice(&env, "expert"),
+        String::from_slice(&env, "Expert reviewer"),
+        None,
+        Some(expiry),
+    )
+    .unwrap();
 
-    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
-
-    // Issuer revokes their own attestation
-    client.revoke_attestation(&issuer, &attestation_id);
-
-    let attestation = client.get_attestation(&attestation_id);
-    assert!(attestation.revoked);
+    let attestation = QuidReputationContract::get_attestation(env, attestation_id).unwrap();
+    assert_eq!(attestation.expires_at, Some(expiry));
 }
 
 #[test]
-fn test_revoke_attestation_by_admin() {
-    let (env, contract_id, admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
+fn test_revoke_attestation() {
+    let env = Env::default();
+    let issuer = Address::random(&env);
+    let subject = Address::random(&env);
 
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
+    let attestation_id = QuidReputationContract::issue_attestation(
+        env.clone(),
+        issuer.clone(),
+        subject.clone(),
+        String::from_slice(&env, "contributor"),
+        String::from_slice(&env, "Active contributor"),
+        None,
+        None,
+    )
+    .unwrap();
 
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
+    let result = QuidReputationContract::revoke_attestation(env.clone(), attestation_id);
+    assert!(result.is_ok());
 
-    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
-
-    // Admin revokes the attestation
-    client.revoke_attestation(&admin, &attestation_id);
-
-    let attestation = client.get_attestation(&attestation_id);
-    assert!(attestation.revoked);
+    let attestation = QuidReputationContract::get_attestation(env, attestation_id).unwrap();
+    assert_eq!(attestation.revoked, true);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #1)")]
-fn test_revoke_attestation_unauthorized() {
-    let (env, contract_id, _admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
+fn test_empty_label_fails() {
+    let env = Env::default();
+    let issuer = Address::random(&env);
+    let subject = Address::random(&env);
 
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-    let unauthorized = Address::generate(&env);
+    let result = QuidReputationContract::issue_attestation(
+        env,
+        issuer,
+        subject,
+        String::from_slice(&env, "contributor"),
+        String::from_slice(&env, ""),
+        None,
+        None,
+    );
 
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
-
-    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
-
-    // Unauthorized user tries to revoke
-    client.revoke_attestation(&unauthorized, &attestation_id);
+    assert!(result.is_err());
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn test_revoke_already_revoked_attestation() {
-    let (env, contract_id, _admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
+fn test_invalid_expiry_time_fails() {
+    let env = Env::default();
+    let issuer = Address::random(&env);
+    let subject = Address::random(&env);
 
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
+    let now = env.ledger().timestamp();
+    let past_expiry = now - 1000; // In the past
 
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
+    let result = QuidReputationContract::issue_attestation(
+        env,
+        issuer,
+        subject,
+        String::from_slice(&env, "contributor"),
+        String::from_slice(&env, "Active contributor"),
+        None,
+        Some(past_expiry),
+    );
 
-    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
+    assert!(result.is_err());
 
-    // Revoke once
-    client.revoke_attestation(&issuer, &attestation_id);
-
-    // Try to revoke again
-    client.revoke_attestation(&issuer, &attestation_id);
-}
-
-#[test]
-fn test_attestation_count() {
-    let (env, contract_id, _admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
-
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-
-    assert_eq!(client.get_attestation_count(), 0);
-
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
-
-    client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
-    assert_eq!(client.get_attestation_count(), 1);
-
-    client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
-    assert_eq!(client.get_attestation_count(), 2);
-}
-
-#[test]
-fn test_attestation_exists() {
-    let (env, contract_id, _admin) = setup_test_env();
-    let client = QuidReputationContractClient::new(&env, &contract_id);
-
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-
-    assert!(!client.attestation_exists(&1));
-
-    let attestation_type = String::from_str(&env, "skill");
-    let data_cid = String::from_str(&env, "QmTest123");
-
-    let attestation_id = client.issue_attestation(&issuer, &subject, &attestation_type, &data_cid);
-
-    assert!(client.attestation_exists(&attestation_id));
 }

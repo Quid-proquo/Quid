@@ -2,9 +2,12 @@ use soroban_sdk::contracterror;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ReputationError {
+
+pub enum QuidError {
     NotAuthorized = 1,
     AttestationNotFound = 2,
-    AlreadyRevoked = 3,
-    InvalidInput = 4,
+    InvalidExpiryTime = 3,
+    AlreadyRevoked = 4,
+    AdminNotSet = 5,
+    InvalidLabel = 6,
 }
