@@ -151,6 +151,7 @@ impl QuidReputationContract {
         // Publish AttestationRevokedEvent
         AttestationRevokedEvent { attestation_id }.publish(&env);
 
+        AttestationRevokedEvent { attestation_id }.publish(&env);
         Ok(())
     }
 
