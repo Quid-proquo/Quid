@@ -1,4 +1,4 @@
-﻿#![no_std]
+#![no_std]
 use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
