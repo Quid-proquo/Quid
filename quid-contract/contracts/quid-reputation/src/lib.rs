@@ -1,4 +1,4 @@
-#![no_std]
+﻿#![no_std]
 use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
@@ -20,10 +20,6 @@ pub struct QuidReputationContract;
 
 #[contractimpl]
 impl QuidReputationContract {
-    // -------------------------------------------------------------------------
-    // Admin bootstrap
-    // -------------------------------------------------------------------------
-
     pub fn initialize(env: Env, admin: Address) -> Result<(), ReputationError> {
         admin.require_auth();
 
@@ -41,10 +37,6 @@ impl QuidReputationContract {
             .get(&DataKey::Admin)
             .ok_or(ReputationError::NotAuthorized)
     }
-
-    // -------------------------------------------------------------------------
-    // Attestations
-    // -------------------------------------------------------------------------
 
     pub fn issue_attestation(
         env: Env,
@@ -139,10 +131,6 @@ impl QuidReputationContract {
             .has(&DataKey::Attestation(attestation_id))
     }
 
-    // -------------------------------------------------------------------------
-    // Profiles
-    // -------------------------------------------------------------------------
-
     pub fn get_profile(env: Env, subject: Address) -> Result<Profile, ReputationError> {
         env.storage()
             .persistent()
@@ -170,6 +158,42 @@ impl QuidReputationContract {
         env.storage().persistent().has(&DataKey::Profile(subject))
     }
 
+    /// Admin-only upsert: write a full profile snapshot for a subject.
+    pub fn upsert_profile(
+        env: Env,
+        subject: Address,
+        score: i64,
+        missions_completed: u32,
+        missions_created: u32,
+        total_earnings: i128,
+    ) -> Result<(), ReputationError> {
+        let admin = Self::get_admin(env.clone())?;
+        admin.require_auth();
+
+        if total_earnings < 0 {
+            return Err(ReputationError::InvalidRewardAmount);
+        }
+
+        let profile = Profile {
+            subject: subject.clone(),
+            score,
+            missions_completed,
+            missions_created,
+        };
+
+        Self::store_profile(&env, &profile);
+
+        env.events().publish(
+            (
+                soroban_sdk::symbol_short!("profile"),
+                soroban_sdk::symbol_short!("updated"),
+            ),
+            subject,
+        );
+
+        Ok(())
+    }
+
     fn get_next_attestation_id(env: &Env) -> u64 {
         let mut count: u64 = env
             .storage()
@@ -183,10 +207,6 @@ impl QuidReputationContract {
         count
     }
 }
-
-// -------------------------------------------------------------------------
-// Internal helpers used by tests
-// -------------------------------------------------------------------------
 
 #[allow(dead_code)]
 impl QuidReputationContract {
