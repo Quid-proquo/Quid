@@ -1,4 +1,4 @@
-#![no_std]
+﻿#![no_std]
 use soroban_sdk::{contract, contractevent, contractimpl, Address, Env, String};
 
 mod error;
@@ -13,6 +13,11 @@ const PROFILE_TTL_LEDGERS: u32 = 5_184_000;
 pub struct AttestationRevokedEvent {
     pub attestation_id: u64,
     pub revoked_by: Address,
+}
+
+#[contractevent(topics = ["profile", "updated"])]
+pub struct ProfileUpdatedEvent {
+    pub subject: Address,
 }
 
 #[contract]
@@ -183,13 +188,7 @@ impl QuidReputationContract {
 
         Self::store_profile(&env, &profile);
 
-        env.events().publish(
-            (
-                soroban_sdk::symbol_short!("profile"),
-                soroban_sdk::symbol_short!("updated"),
-            ),
-            subject,
-        );
+        ProfileUpdatedEvent { subject }.publish(&env);
 
         Ok(())
     }
