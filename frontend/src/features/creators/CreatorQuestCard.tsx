@@ -62,7 +62,7 @@ export const CreatorQuestCard: React.FC<CreatorQuestCardProps> = ({
                 height={12.67}
                 className="w-[12.67px] h-[12.67px]"
               />
-              <span className="text-white">{category}</span>
+              <span className={config.textColor}>{category}</span>
             </div>
             
             <div className="flex items-center gap-1">
