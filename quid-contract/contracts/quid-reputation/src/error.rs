@@ -9,4 +9,6 @@ pub enum ReputationError {
     InvalidInput = 4,
     /// No profile exists for the given subject address.
     ProfileNotFound = 5,
+    /// No admin has been bootstrapped yet.
+    AdminNotSet = 6,
 }

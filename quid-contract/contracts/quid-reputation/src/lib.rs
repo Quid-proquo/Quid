@@ -20,12 +20,24 @@ impl QuidReputationContract {
     // Admin bootstrap
     // -------------------------------------------------------------------------
 
-    /// Initialize the contract with an admin address. May only be called once.
-    pub fn initialize(env: Env, admin: Address) -> Result<(), ReputationError> {
-        admin.require_auth();
-
-        if env.storage().instance().has(&DataKey::Admin) {
-            return Err(ReputationError::InvalidInput);
+    /// Bootstrap or rotate the admin.
+    ///
+    /// - First call (no admin set): `admin` self-authorizes.
+    /// - Subsequent calls: the current admin must authorize the change.
+    pub fn set_admin(env: Env, admin: Address) -> Result<(), ReputationError> {
+        match env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::Admin)
+        {
+            // No admin yet — new admin self-authorizes.
+            None => {
+                admin.require_auth();
+            }
+            // Admin already set — current admin must authorize the rotation.
+            Some(current_admin) => {
+                current_admin.require_auth();
+            }
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -33,11 +45,13 @@ impl QuidReputationContract {
     }
 
     /// Get the admin address.
+    ///
+    /// Returns `AdminNotSet` when no admin has been bootstrapped yet.
     pub fn get_admin(env: Env) -> Result<Address, ReputationError> {
         env.storage()
             .instance()
             .get(&DataKey::Admin)
-            .ok_or(ReputationError::NotAuthorized)
+            .ok_or(ReputationError::AdminNotSet)
     }
 
     // -------------------------------------------------------------------------
@@ -174,14 +188,14 @@ impl QuidReputationContract {
 #[allow(dead_code)]
 impl QuidReputationContract {
     /// Require that `caller` is the bootstrapped admin.
-    /// Returns `NotAuthorized` if no admin has been bootstrapped yet or the
-    /// caller does not match.
+    /// Returns `AdminNotSet` if no admin has been bootstrapped yet, or
+    /// `NotAuthorized` if the caller does not match.
     pub(crate) fn require_admin(env: &Env, caller: &Address) -> Result<(), ReputationError> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .ok_or(ReputationError::NotAuthorized)?;
+            .ok_or(ReputationError::AdminNotSet)?;
 
         admin.require_auth();
 
