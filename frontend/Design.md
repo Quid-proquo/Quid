@@ -2,7 +2,7 @@
 
 ### Figma Design
 
-Figma layout: [Wallet UI](https://www.figma.com/design/0pGK686ZLE68HmI3Wu2EvF/Survexa?node-id=647-2951&t=7mOUCjB6dSAYh8Xb-1)
+Figma layout: [Dashboard UI](https://www.figma.com/design/0pGK686ZLE68HmI3Wu2EvF/Survexa?node-id=647-3075&t=7mOUCjB6dSAYh8Xb-1)
 
 ### Responsive Screens
 
