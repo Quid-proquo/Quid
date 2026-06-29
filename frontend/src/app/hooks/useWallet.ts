@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useWallet as useWalletContext } from "@/context/WalletProvider";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useWallet as useWalletContext,
+  type Balance,
+} from "@/context/WalletProvider";
 
 /**
  * Horizon endpoint. Defaults to the public testnet so unfunded accounts can be
@@ -13,7 +16,7 @@ export const HORIZON_URL =
 export const FRIENDBOT_URL =
   process.env.NEXT_PUBLIC_FRIENDBOT_URL ?? "https://friendbot.stellar.org";
 
-/** A single balance line item as returned by Horizon's `/accounts` endpoint. */
+/** A single balance line item, normalized from the wallet context. */
 export interface WalletBalance {
   assetType: string;
   assetCode: string;
@@ -32,13 +35,6 @@ export interface WalletTransaction {
   assetCode: string;
   date: string;
   successful: boolean;
-}
-
-interface HorizonBalance {
-  balance: string;
-  asset_type: string;
-  asset_code?: string;
-  asset_issuer?: string;
 }
 
 interface HorizonPayment {
@@ -80,7 +76,7 @@ export interface UseWalletResult {
   funding: boolean;
 }
 
-function parseBalances(raw: HorizonBalance[]): WalletBalance[] {
+function parseBalances(raw: Balance[]): WalletBalance[] {
   return raw
     .map((b) => ({
       assetType: b.asset_type,
@@ -88,7 +84,7 @@ function parseBalances(raw: HorizonBalance[]): WalletBalance[] {
       assetIssuer: b.asset_issuer,
       balance: b.balance,
     }))
-    // Native asset first, then the rest in Horizon's order.
+    // Native asset first, then the rest in the context's order.
     .sort((a, b) =>
       a.assetType === "native" ? -1 : b.assetType === "native" ? 1 : 0,
     );
@@ -141,26 +137,37 @@ function parsePayments(
 }
 
 /**
- * Reads the connected wallet's public key from the wallet provider and fetches
- * its balances and recent payments from Horizon. Exposes XLM/USDC balances, a
- * funded flag for unfunded testnet accounts, real transaction history, and a
- * manual refresh.
+ * Wallet view-model for the creator wallet page. Balances come from the shared
+ * WalletProvider (single source of truth); this hook adds the pieces the page
+ * needs on top — normalized balances, real transaction history and an unfunded
+ * flag from Horizon's payments endpoint, plus Friendbot funding and refresh.
  */
 export function useWallet(): UseWalletResult {
-  const { publicKey: contextPublicKey, connected } = useWalletContext();
+  const {
+    publicKey: contextPublicKey,
+    connected,
+    balances: contextBalances,
+    refreshBalances: refreshContextBalances,
+  } = useWalletContext();
+
   const publicKey = contextPublicKey ?? "";
   const isConnected = connected;
 
-  const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [funded, setFunded] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [funding, setFunding] = useState<boolean>(false);
 
-  const refreshBalances = useCallback(async () => {
+  const balances = useMemo(
+    () => parseBalances(contextBalances),
+    [contextBalances],
+  );
+
+  // Transaction history + funded status come from the account's payments
+  // endpoint, which 404s for accounts that have not been created on the ledger.
+  const fetchActivity = useCallback(async () => {
     if (!publicKey) {
-      setBalances([]);
       setTransactions([]);
       setFunded(true);
       setError(null);
@@ -171,48 +178,47 @@ export function useWallet(): UseWalletResult {
     setError(null);
 
     try {
-      const accRes = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
+      const res = await fetch(
+        `${HORIZON_URL}/accounts/${publicKey}/payments?order=desc&limit=15`,
+      );
 
-      // Horizon returns 404 for accounts that exist as a keypair but have not
-      // been funded/created on the ledger yet.
-      if (accRes.status === 404) {
-        setBalances([]);
+      if (res.status === 404) {
         setTransactions([]);
         setFunded(false);
         return;
       }
 
-      if (!accRes.ok) {
-        throw new Error(`Horizon responded with ${accRes.status}`);
+      if (!res.ok) {
+        throw new Error(`Horizon responded with ${res.status}`);
       }
 
-      const accData = await accRes.json();
-      setBalances(parseBalances(accData.balances ?? []));
+      const data = await res.json();
+      const records: HorizonPayment[] = data?._embedded?.records ?? [];
+      setTransactions(parsePayments(records, publicKey));
       setFunded(true);
-
-      // Real transaction history via the account's payments endpoint
-      // (the `_links.payments` href on the account response).
-      const payRes = await fetch(
-        `${HORIZON_URL}/accounts/${publicKey}/payments?order=desc&limit=15`,
-      );
-      if (payRes.ok) {
-        const payData = await payRes.json();
-        const records: HorizonPayment[] = payData?._embedded?.records ?? [];
-        setTransactions(parsePayments(records, publicKey));
-      } else {
-        setTransactions([]);
-      }
     } catch (err) {
-      console.error("Failed to load wallet data:", err);
-      setError("Unable to load wallet data. Check your connection and retry.");
+      console.error("Failed to load wallet activity:", err);
+      setError("Unable to load wallet activity. Check your connection and retry.");
     } finally {
       setLoading(false);
     }
   }, [publicKey]);
 
   useEffect(() => {
-    refreshBalances();
-  }, [refreshBalances]);
+    // Defer to a microtask so the loading/reset setState calls don't run
+    // synchronously inside the effect (avoids cascading renders).
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) void fetchActivity();
+    });
+    return () => {
+      active = false;
+    };
+  }, [fetchActivity]);
+
+  const refreshBalances = useCallback(async () => {
+    await Promise.all([refreshContextBalances(), fetchActivity()]);
+  }, [refreshContextBalances, fetchActivity]);
 
   const fundWithFriendbot = useCallback(async () => {
     if (!publicKey) return;
