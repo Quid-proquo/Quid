@@ -124,7 +124,7 @@ const RoleSelection = () => {
           ))}
         </div>
         <button
-          className="bg-[#9011FF] py-2.5 rounded-xl px-24 mt-20 text-white cursor-pointer mb-12 lg:mb-auto disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#9011FF]/70"
+          className="bg-[#9011FF] py-2.5 rounded-xl w-full max-w-sm sm:w-auto sm:px-24 mt-12 lg:mt-20 text-white cursor-pointer mb-12 lg:mb-auto disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#9011FF]/70"
           disabled={selectedRole === null}
         >
           <Link href={"/dashboard"}> Continue</Link>
