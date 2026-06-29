@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { MissionsModule } from './missions/missions.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UploadModule } from './upload/upload.module';
+import { IndexerModule } from './indexer/indexer.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { UploadModule } from './upload/upload.module';
     AuthModule,
     MissionsModule,
     UploadModule,
+    IndexerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

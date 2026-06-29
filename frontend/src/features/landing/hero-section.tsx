@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion, Variants } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
+import SignUpButton from "@/components/auth/SignUpButton";
 
 const heroStats = [
   {
@@ -153,13 +154,10 @@ export default function HeroSection() {
             </div>
           </div>
 
-          <motion.button
-            className="hidden bg-[#9011FF] rounded-[12px] px-7 py-3 text-lg font-semibold shadow-lg shadow-violet-500/30 cursor-pointer md:inline-flex hover:bg-purple-700 transition-colors"
-            whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(144, 17, 255, 0.5)" }}
-            whileTap={{ scale: 0.95 }}
-          >
-            Connect
-          </motion.button>
+          <SignUpButton
+            variant="nav"
+            className="hidden md:inline-flex cursor-pointer"
+          />
 
           <motion.button
             type="button"
@@ -237,13 +235,10 @@ export default function HeroSection() {
                     Contact us
                   </motion.span>
                 </div>
-                <motion.button
-                  className="mt-6 h-[44px] w-full rounded-[12px] border border-[#B159FF] bg-[#9011FF] px-6 py-[14px] text-sm font-semibold text-white shadow-[0_0_12.1px_4px_rgba(177,89,255,0.15)] hover:bg-purple-700 transition-colors"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  Connect
-                </motion.button>
+                <SignUpButton
+                  variant="nav"
+                  className="mt-6 h-[44px] w-full text-sm"
+                />
               </motion.aside>
             </>
           )}

@@ -242,12 +242,12 @@ export default function OpportunitiesSection() {
 
         {/* CTA Button Section */}
         <motion.div
-        className="relative z-10 flex justify-center"
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.8 }}
-        viewport={{ once: true, amount: 0.3 }}
-      >
+          className="relative z-10 flex justify-center"
+          variants={buttonVariants}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.3 }}
+        >
         <motion.button
           className="px-8 py-3 rounded-lg border-2 border-purple-500/50 text-white font-semibold hover:border-purple-400 hover:bg-white/5 transition-all duration-300"
           whileHover={{
