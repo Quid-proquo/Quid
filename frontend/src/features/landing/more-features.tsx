@@ -148,7 +148,7 @@ export default function MoreFeatures() {
         {/* Right Side - Content */}
         <motion.div
           className="w-full space-y-6 lg:w-[55%]"
-          variants={containerVariants}
+          variants={contentVariants}
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}

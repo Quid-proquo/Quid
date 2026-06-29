@@ -1,39 +1,63 @@
 "use client";
-import Link from "next/link";
+
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  getDashboardRouteForRole,
+  saveUserRole,
+  type UserRole,
+} from "@/lib/onboarding";
+
+const ROLES: Array<{
+  id: UserRole;
+  icon: string;
+  title: string;
+  description: string;
+  benefits: string[];
+}> = [
+  {
+    id: "creator",
+    icon: "/role-selection/building-icon.png",
+    title: "Create surveys & get insights",
+    description:
+      "Launch research projects and collect quality responses from engaged participants",
+    benefits: [
+      "Access to verified Stellar participants",
+      "Advanced analytics and reporting",
+      "Real-time response monitoring",
+      "On-chain escrow for rewards",
+    ],
+  },
+  {
+    id: "hunter",
+    icon: "/role-selection/cash-icon.png",
+    title: "Take surveys & earn money",
+    description:
+      "Share your opinions with brands and get rewarded for your valuable feedback",
+    benefits: [
+      "Earn USDC for each completed mission",
+      "Flexible schedule - work anytime",
+      "Fair compensation for your time",
+      "Instant payments via blockchain",
+    ],
+  },
+];
 
 const RoleSelection = () => {
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const boxContent = [
-    {
-      icon: "/role-selection/building-icon.png",
-      title: "Create surveys & get insights",
-      description:
-        "Launch research projects and collect quality responses from engaged participants",
-      benefits: [
-        "Access to 500k+ survey participants ",
-        "Advanced analytics and reporting",
-        "Real-time response monitoring",
-        "Enterprise-grade security",
-      ],
-    },
-    {
-      icon: "/role-selection/cash-icon.png",
-      title: "Take surveys % earn money",
-      description:
-        "Share your opinions with brands and get rewarded for your valuable feedback",
-      benefits: [
-        " Earn money for each completed survey",
-        "Flexible schedule - work anytime",
-        "Fair compensation for your time",
-        "Instant payments via blockchain",
-      ],
-    },
-  ];
+  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+  const router = useRouter();
+
+  const handleContinue = () => {
+    if (!selectedRole) return;
+
+    saveUserRole(selectedRole);
+    router.push(getDashboardRouteForRole(selectedRole));
+  };
+
   return (
     <div className="bg-gray-50 dark:bg-[#121015] min-h-screen relative overflow-hidden selection:bg-purple-500/30">
-      {/* BAckgound blob*/}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-200 h-200 flex items-center justify-center  select-none z-0 inset-0  pointer-events-none">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-200 h-200 flex items-center justify-center select-none z-0 inset-0 pointer-events-none">
         <svg
           viewBox="0 0 100 100"
           className="w-full h-full fill-purple-700/20 blur-[120px] -rotate-12 -z-10"
@@ -41,8 +65,8 @@ const RoleSelection = () => {
           <path d="M50 0 C22.4 0 0 22.4 0 50 C0 77.6 22.4 100 50 100 C60 100 69 97 77 92 L85 100 L92 92 L84 84 C94 75 100 63 100 50 C100 22.4 77.6 0 50 0 Z M50 80 C33.4 80 20 66.6 20 50 C20 33.4 33.4 20 50 20 C66.6 20 80 33.4 80 50 C80 66.6 66.6 80 50 80 Z" />
         </svg>
       </div>
-      {/* Main content  */}
-      <div className="relative z-10  flex flex-col justify-center items-center lg:py-24 py-6 m-auto font-inter lg:px-auto px-5">
+
+      <div className="relative z-10 flex flex-col justify-center items-center lg:py-24 py-6 m-auto font-inter lg:px-auto px-5">
         <svg
           className="size-24"
           viewBox="0 0 85 49"
@@ -50,17 +74,17 @@ const RoleSelection = () => {
           xmlns="http://www.w3.org/2000/svg"
         >
           <path
-            fill-rule="evenodd"
-            clip-rule="evenodd"
+            fillRule="evenodd"
+            clipRule="evenodd"
             d="M6.42928 37.6266L10.3292 43.2301H6.69637C2.99812 43.2301 0 40.2522 0 36.5793V12.4702H5.02228V34.9166C5.02228 36.0345 5.57772 37.0234 6.42928 37.6266Z"
             fill="#9011FF"
             className="fill-[#9011FF]"
           />
           <path
-            fill-rule="evenodd"
-            clip-rule="evenodd"
+            fillRule="evenodd"
+            clipRule="evenodd"
             d="M18.415 43.0206C21.3032 42.2826 23.4373 39.6782 23.4373 36.5793V6.65078C23.4373 2.97791 20.4392 0 16.7409 0H6.69637C2.99812 0 0 2.97791 0 6.65078V9.14483H5.02228V8.31348C5.02228 6.47704 6.52124 4.98809 8.37047 4.98809H15.0668C16.9161 4.98809 18.415 6.47704 18.415 8.31348V34.9166C18.415 36.753 16.9161 38.242 15.0668 38.242H10.928L18.415 49V43.0206Z"
-            fill="#9011FF "
+            fill="#9011FF"
             className="fill-[#9011FF]"
           />
           <path
@@ -80,40 +104,47 @@ const RoleSelection = () => {
           />
         </svg>
 
-        {/* Choose Account Texts  */}
         <div className="flex flex-col gap-3 items-center justify-center py-4 pt-8">
           <h1 className="lg:text-3xl text-xl text-gray-900 dark:text-white font-semibold transition-colors">
             Account Type Selection
           </h1>
           <p className="text-gray-500 dark:text-[#71717A] text-sm transition-colors">
-            Choose an account to get started.
+            Choose how you want to use Quid.
           </p>
         </div>
 
-        {/* Select boxes  */}
         <div className="flex justify-center items-center gap-5 md:flex-row flex-col pt-4">
-          {/*box  */}
-          {boxContent.map((box) => (
+          {ROLES.map((role) => (
             <div
-              className={`dark:hover:border-[#9011FF] border-transparent dark:hover:shadow-none ${selectedRole === box.title ? "border-[#9011FF] ring-1 ring-purple-600 " : "border-[#332046]"} dark:border-[#332046] border rounded-lg p-4 cursor-pointer hover:border-[#9011FF] md:max-w-sm dark:bg-[#0E0E0E54] bg-white`}
-              key={box.title}
-              onClick={() => setSelectedRole(box.title)}
+              className={`dark:hover:border-[#9011FF] border-transparent dark:hover:shadow-none ${
+                selectedRole === role.id
+                  ? "border-[#9011FF] ring-1 ring-purple-600"
+                  : "border-[#332046]"
+              } dark:border-[#332046] border rounded-lg p-4 cursor-pointer hover:border-[#9011FF] md:max-w-sm dark:bg-[#0E0E0E54] bg-white`}
+              key={role.id}
+              onClick={() => setSelectedRole(role.id)}
             >
               <div className="flex justify-normal items-center gap-2">
-                <img src={box.icon} className="size-10" />
-                <h3 className="lg:text-xl text-lg text-gray-900 dark:text-white font-medium capitalize transition-colors">
-                  {box.title}
+                <Image
+                  src={role.icon}
+                  alt=""
+                  width={40}
+                  height={40}
+                  className="size-10"
+                />
+                <h3 className="lg:text-xl text-lg text-gray-900 dark:text-white font-medium transition-colors">
+                  {role.title}
                 </h3>
               </div>
               <p className="text-gray-500 dark:text-[#71717A] py-4 transition-colors">
-                {box.description}
+                {role.description}
               </p>
               <div className="bg-neutral-100 dark:bg-[#1B181E] transition-colors rounded-xl p-3">
                 <p className="text-gray-500 dark:text-[#71717A] pb-2">
                   Key Benefits
                 </p>
                 <ul className="text-gray-600 dark:text-[#B0B0B0]">
-                  {box.benefits.map((benefit) => (
+                  {role.benefits.map((benefit) => (
                     <li className="list-disc ml-6" key={benefit}>
                       {benefit}
                     </li>
@@ -123,11 +154,14 @@ const RoleSelection = () => {
             </div>
           ))}
         </div>
+
         <button
+          type="button"
           className="bg-[#9011FF] py-2.5 rounded-xl w-full max-w-sm sm:w-auto sm:px-24 mt-12 lg:mt-20 text-white cursor-pointer mb-12 lg:mb-auto disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#9011FF]/70"
           disabled={selectedRole === null}
+          onClick={handleContinue}
         >
-          <Link href={"/dashboard"}> Continue</Link>
+          Continue
         </button>
       </div>
     </div>

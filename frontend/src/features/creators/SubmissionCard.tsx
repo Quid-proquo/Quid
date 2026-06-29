@@ -1,6 +1,7 @@
 "use client";
+
+import Image from "next/image";
 import { Submission } from "@/app/hooks/useQuestData";
-import { Icon } from "@iconify/react";
 import { useState } from "react";
 
 export default function SubmissionCard({
@@ -13,6 +14,7 @@ export default function SubmissionCard({
   isApproved?: boolean;
 }) {
   const [selectWinner, setSelectWinner] = useState<Record<string, boolean>>({});
+  const isWinnerSelected = selectWinner[submission.id] || isApproved;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -26,9 +28,9 @@ export default function SubmissionCard({
         return "bg-gray-500/20 text-gray-400 border border-gray-500";
     }
   };
+
   return (
     <div className="p-2 md:p-3">
-      {/* ABOUT SURVEY  */}
       <div>
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#141026] rounded-2xl p-3 md:p-4 m-2 md:m-4 gap-4 md:gap-0">
           <div className="flex flex-col gap-3 w-full md:w-auto">
@@ -38,9 +40,11 @@ export default function SubmissionCard({
             <p className="text-[#CFC9FF] text-xs md:text-sm flex items-center gap-2">
               Click this{" "}
               <span>
-                <img
+                <Image
                   src="/quest-detail/stellar-icon.png"
-                  alt=""
+                  alt="Stellar"
+                  width={16}
+                  height={16}
                   className="size-4"
                 />
               </span>{" "}
@@ -55,29 +59,36 @@ export default function SubmissionCard({
           </div>
         </div>
         <div className="flex flex-col gap-3 pt-6">
-          <div
-            className="flex flex-col md:flex-row justify-between items-start md:items-center text-white px-2 md:px-4 gap-4 md:gap-0 w-full"
-          >
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center text-white px-2 md:px-4 gap-4 md:gap-0 w-full">
             <div className="flex items-center gap-2 flex-1">
-              <img
+              <Image
                 src="/quest-detail/avatar-quid.png"
-                alt=""
+                alt={submission.user}
+                width={48}
+                height={48}
                 className="size-10 md:size-12 rounded-full"
               />
               <div className="flex flex-col gap-1 flex-1">
                 <p className="text-sm md:text-base font-medium">{submission.user}</p>
-                <p className="text-[#CFC9FF] text-xs md:text-sm">Submitted {typeof submission.date === 'object' ? submission.date.toLocaleDateString() : submission.date}</p>
-                <p className="text-xs md:text-sm text-gray-400 truncate">{submission.content}</p>
+                <p className="text-[#CFC9FF] text-xs md:text-sm">
+                  Submitted{" "}
+                  {typeof submission.date === "object"
+                    ? submission.date.toLocaleDateString()
+                    : submission.date}
+                </p>
+                <p className="text-xs md:text-sm text-gray-400 truncate">
+                  {submission.content}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3 md:gap-4">
-              {/* Status Badge */}
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${getStatusColor(submission.status)}`}>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${getStatusColor(submission.status)}`}
+              >
                 {submission.status}
               </span>
-              
-              {/* Approve Button - Only for pending */}
-              {submission.status === "pending" && (
+
+              {submission.status === "pending" && !isApproved && (
                 <button
                   onClick={onApprove}
                   className="bg-[#9011FF] hover:bg-[#7d0dd4] text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors"
@@ -86,24 +97,34 @@ export default function SubmissionCard({
                   ✓ Approve
                 </button>
               )}
-              
-              {/* Winner Selection Icon */}
-              <img
+
+              <button
+                type="button"
                 onClick={() =>
                   setSelectWinner((prev) => ({
                     ...prev,
                     [submission.id]: !prev[submission.id],
                   }))
                 }
-                src="/quest-detail/stellar-icon.png"
-                alt="Select as winner"
-                className={`size-6 md:size-8 p-1 md:p-2 cursor-pointer transition-colors ${selectWinner[submission.id] ? "bg-[#9011FF] rounded-full" : "hover:opacity-80"}`}
-              />
+                className={`rounded-full p-1 md:p-2 transition-colors ${
+                  isWinnerSelected
+                    ? "bg-[#9011FF]"
+                    : "hover:opacity-80"
+                }`}
+                aria-label="Select as winner"
+              >
+                <Image
+                  src="/quest-detail/stellar-icon.png"
+                  alt="Select as winner"
+                  width={32}
+                  height={32}
+                  className="size-6 md:size-8"
+                />
+              </button>
             </div>
           </div>
         </div>
-        </div>
       </div>
-  
+    </div>
   );
 }

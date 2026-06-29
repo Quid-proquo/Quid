@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useWalletProvider } from "@/context/WalletProvider";
+import { useWallet as useWalletContext } from "@/context/WalletProvider";
 
 /**
  * Horizon endpoint. Defaults to the public testnet so unfunded accounts can be
@@ -147,7 +147,9 @@ function parsePayments(
  * manual refresh.
  */
 export function useWallet(): UseWalletResult {
-  const { publicKey, isConnected } = useWalletProvider();
+  const { publicKey: contextPublicKey, connected } = useWalletContext();
+  const publicKey = contextPublicKey ?? "";
+  const isConnected = connected;
 
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);

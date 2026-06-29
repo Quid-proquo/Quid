@@ -1,10 +1,10 @@
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import EmptyState from "./EmptyState";
 import QuestHeader from "./QuestHeader";
 import SubmissionCard from "./SubmissionCard";
 import TaskInfo from "./TaskInfo";
-import { Icon } from "@iconify/react";
 import { Submission, Quest } from "@/app/hooks/useQuestData";
 
 export default function CreatorQuestDetail({
@@ -94,9 +94,11 @@ export default function CreatorQuestDetail({
           </div>
           <div className=" border-r border-b border-[#241B4A] flex flex-col gap-2 items-start text-white p-2 py-6">
             <div className="flex items-center gap-2">
-              <img
+              <Image
                 src="/quest-detail/stellar-icon.png"
-                alt=""
+                alt="Stellar"
+                width={24}
+                height={24}
                 className="size-6"
               />
               <h2 className="text-2xl font-semibold">{quest?.reward || 640} XLM</h2>

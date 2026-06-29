@@ -34,8 +34,6 @@ export default function CreatorDashboard() {
     },
   });
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
@@ -53,7 +51,7 @@ export default function CreatorDashboard() {
             totalRewards: 2150.02,
           },
         });
-      } catch (error) {
+      } catch {
         setState(prev => ({
           ...prev,
           loading: false,
@@ -76,7 +74,7 @@ export default function CreatorDashboard() {
   if (state.loading) {
     return (
       <div className="min-h-screen text-white flex flex-col">
-        <DashboardHeader setIsSidebarOpen={setIsSidebarOpen} />
+        <DashboardHeader />
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6">
           <DashboardSkeleton />
         </main>
@@ -87,7 +85,7 @@ export default function CreatorDashboard() {
   if (state.error) {
     return (
       <div className="min-h-screen text-white flex flex-col">
-        <DashboardHeader setIsSidebarOpen={setIsSidebarOpen} />
+        <DashboardHeader />
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col items-center justify-center py-12 sm:py-20 px-4">
             <AlertCircle className="w-12 h-12 sm:w-16 sm:h-16 text-red-500 mb-4" />
@@ -107,7 +105,7 @@ export default function CreatorDashboard() {
 
   return (
     <div className="min-h-screen text-white flex flex-col">
-      <DashboardHeader setIsSidebarOpen={setIsSidebarOpen} />
+      <DashboardHeader />
 
       {/* Main Content Area */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -180,7 +178,7 @@ export default function CreatorDashboard() {
 }
 
 // Header Component
-function DashboardHeader({ setIsSidebarOpen }: { setIsSidebarOpen: (open: boolean) => void }) {
+function DashboardHeader() {
   return (
     <header className="sticky top-0 z-30">
       <div className="px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -208,9 +206,10 @@ function DashboardHeader({ setIsSidebarOpen }: { setIsSidebarOpen: (open: boolea
           </button>
 
           {/* Mobile Menu Button */}
-          <button 
-            onClick={() => setIsSidebarOpen(true)}
+          <button
+            type="button"
             className="lg:hidden p-2 hover:bg-gray-800/50 rounded-lg transition-colors"
+            aria-label="Open menu"
           >
             <Menu className="w-5 h-5 text-gray-400" />
           </button>
