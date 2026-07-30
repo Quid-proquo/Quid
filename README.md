@@ -77,7 +77,7 @@ IPFS (feedback blobs; CID stored on-chain)
 ```bash
 cd frontend
 npm install
-cp .env.local.example .env.local   # or create .env.local (see frontend/README.md)
+cp .env.local.example .env.local   # fill NEXT_PUBLIC_API_URL and contract IDs (see frontend/README.md)
 npm run dev
 ```
 
@@ -88,7 +88,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 cd backend
 docker compose up -d
-cp .env.example .env               # fill STELLAR_SERVER_SECRET, JWT_SECRET
+cp .env.example .env               # fill STELLAR_SERVER_SECRET, JWT_SECRET, CORS_ORIGINS
 npm install
 npm run prisma:migrate
 npm run start:dev
