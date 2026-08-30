@@ -4,6 +4,7 @@ import { useState } from "react";
 import { uploadFeedbackToIpfs } from "@/lib/upload-api";
 import { submitFeedbackToContract, SubmissionReceipt } from "@/lib/soroban-client";
 import { useWallet } from "@/context/WalletProvider";
+import ProofFileUpload from "@/components/hunter/ProofFileUpload";
 import {
   AlertCircle,
   CheckCircle2,
@@ -42,6 +43,7 @@ export default function SubmitFeedbackModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<SubmissionReceipt | null>(null);
   const [uploadedCid, setUploadedCid] = useState<string | null>(null);
+  const [proofFileCid, setProofFileCid] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -50,6 +52,7 @@ export default function SubmitFeedbackModal({
     setErrorMessage(null);
     setReceipt(null);
     setUploadedCid(null);
+    setProofFileCid(null);
     onClose();
   };
 
@@ -85,12 +88,13 @@ export default function SubmitFeedbackModal({
         missionId: numericMissionId,
         hunterAddress: publicKey!,
         feedbackText,
-        proofUrl,
+        proofUrl: proofFileCid ? `ipfs://${proofFileCid}` : proofUrl,
         sentiment: sentiment / 5,
         metadata: {
           questTitle: quest.title,
           questBrand: quest.brand,
           reward: quest.reward,
+          proofFileCid: proofFileCid ?? undefined,
         },
       });
 
@@ -169,6 +173,21 @@ export default function SubmitFeedbackModal({
                   onChange={(e) => setFeedbackText(e.target.value)}
                   placeholder="Detailed observations, test steps performed, bugs discovered, or dApp feedback..."
                   className="w-full rounded-xl border border-white/15 bg-white/[0.04] p-3 text-sm text-white placeholder-white/30 focus:border-[#B78CFF] focus:outline-none"
+                />
+              </div>
+
+              {/* Proof File Upload */}
+              <div>
+                <label className="block text-sm font-medium text-white/90">
+                  Proof File (Optional)
+                </label>
+                <p className="mb-2 text-xs text-white/50">
+                  Attach a screenshot, screen recording, or PDF as pinned, verifiable proof.
+                </p>
+                <ProofFileUpload
+                  hunterAddress={publicKey}
+                  onUploadComplete={(cid) => setProofFileCid(cid)}
+                  onUploadError={(msg) => setErrorMessage(msg)}
                 />
               </div>
 
