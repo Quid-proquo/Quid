@@ -1070,6 +1070,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "quid-tip-jar"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "quid-treasury-multisig"
 version = "0.0.0"
 dependencies = [
