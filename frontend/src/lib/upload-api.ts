@@ -20,6 +20,17 @@ export interface UploadResponse {
   [key: string]: unknown;
 }
 
+export const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
+export const ALLOWED_UPLOAD_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "application/pdf",
+];
+
 interface ChallengeResponse {
   transaction: string;
   networkPassphrase: Networks;
@@ -86,6 +97,112 @@ export async function authenticateHunter(address: string): Promise<string> {
 
   storeSession(address, verified.access_token);
   return verified.access_token;
+}
+
+export class FileValidationError extends Error {}
+
+function validateFile(file: File): void {
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    throw new FileValidationError(
+      `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB, which exceeds the ${
+        MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
+      }MB limit.`,
+    );
+  }
+  if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type)) {
+    throw new FileValidationError(
+      `"${file.name}" has an unsupported file type (${file.type || "unknown"}). Allowed: images, video/mp4, or PDF.`,
+    );
+  }
+}
+
+/**
+ * Uploads a proof file (image/video/pdf) as multipart/form-data to the backend
+ * IPFS endpoint, reporting progress, and returns the pinned CID.
+ * Validates size/type client-side before attempting the network request.
+ */
+export function uploadFileToIpfs(
+  file: File,
+  hunterAddress: string,
+  onProgress?: (percent: number) => void,
+): Promise<{ cid: string; data: UploadResponse }> {
+  validateFile(file);
+
+  return new Promise((resolve, reject) => {
+    const send = async () => {
+      let token = readStoredSession(hunterAddress);
+      if (!token) {
+        try {
+          token = await authenticateHunter(hunterAddress);
+        } catch (authErr) {
+          const msg = authErr instanceof Error ? authErr.message : "Authentication failed";
+          reject(new Error(`IPFS Upload Failed: ${msg}`));
+          return;
+        }
+      }
+
+      const attempt = (authToken: string) => {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_URL}/upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && onProgress) {
+            onProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+
+        xhr.onload = async () => {
+          if (xhr.status === 401 && authToken === token) {
+            // Stale/expired token: re-authenticate once and retry.
+            try {
+              const freshToken = await authenticateHunter(hunterAddress);
+              attempt(freshToken);
+            } catch (authErr) {
+              const msg = authErr instanceof Error ? authErr.message : "Authentication failed";
+              reject(new Error(`IPFS Upload Failed: ${msg}`));
+            }
+            return;
+          }
+
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(
+              new Error(
+                `IPFS Upload Failed: backend responded with status ${xhr.status}: ${
+                  xhr.responseText || xhr.statusText
+                }`,
+              ),
+            );
+            return;
+          }
+
+          try {
+            const data = JSON.parse(xhr.responseText) as UploadResponse;
+            if (!data.cid) {
+              reject(new Error("IPFS Upload Failed: response did not include a CID"));
+              return;
+            }
+            resolve({ cid: data.cid, data });
+          } catch {
+            reject(new Error("IPFS Upload Failed: could not parse backend response"));
+          }
+        };
+
+        xhr.onerror = () => {
+          reject(new Error("IPFS Upload Failed: network error while uploading file"));
+        };
+
+        xhr.send(formData);
+      };
+
+      attempt(token);
+    };
+
+    send();
+  });
 }
 
 /**
