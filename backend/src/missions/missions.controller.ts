@@ -14,6 +14,7 @@ import { MissionsService } from './missions.service';
 import { ListMissionsQueryDto } from './dto/list-missions-query.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
 import { RejectSubmissionDto } from './dto/reject-submission.dto';
+import { AttachSubmissionTextDto } from './dto/attach-submission-text.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Prisma } from '@prisma/client';
 
@@ -63,32 +64,45 @@ export class MissionsController {
 
   @Post(':missionId/submissions/:id/approve')
   @UseGuards(JwtAuthGuard)
-  approveSubmission(
+  async approveSubmission(
     @Param('missionId') missionId: string,
     @Param('id') id: string,
+    @Body() dto: AttachSubmissionTextDto,
     @Req() req: AuthenticatedRequest,
   ): Promise<unknown> {
-    return this.missionsService.approveSubmission(
+    const result = await this.missionsService.approveSubmission(
       missionId,
       id,
       req.user.address,
     );
+
+    if (dto.text?.trim()) {
+      await this.missionsService.attachSubmissionText(missionId, id, dto.text);
+    }
+
+    return result;
   }
 
   @Post(':missionId/submissions/:id/reject')
   @UseGuards(JwtAuthGuard)
-  rejectSubmission(
+  async rejectSubmission(
     @Param('missionId') missionId: string,
     @Param('id') id: string,
-    @Body() dto: RejectSubmissionDto,
+    @Body() dto: RejectSubmissionDto & AttachSubmissionTextDto,
     @Req() req: AuthenticatedRequest,
   ): Promise<unknown> {
-    return this.missionsService.rejectSubmission(
+    const result = await this.missionsService.rejectSubmission(
       missionId,
       id,
       req.user.address,
       dto.reason,
     );
+
+    if (dto.text?.trim()) {
+      await this.missionsService.attachSubmissionText(missionId, id, dto.text);
+    }
+
+    return result;
   }
 
   @Post('drafts')

@@ -2,7 +2,9 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Check, X } from "lucide-react";
+import { AlertCircle, Check, Loader2, X } from "lucide-react";
+import { publishMissionOnChain, MissionEscrowError } from "@/lib/mission-escrow";
+import type { MissionEscrowResult } from "@/lib/mission-escrow";
 import WizardStepper from "./WizardStepper";
 import WizardFooter from "./WizardFooter";
 import ParticipantPreviewModal from "./ParticipantPreviewModal";
@@ -13,6 +15,7 @@ import RewardsStep, { isRewardsStepValid } from "./steps/RewardsStep";
 import ScheduleStep, { isScheduleStepValid } from "./steps/ScheduleStep";
 import ReviewStep from "./steps/ReviewStep";
 import { WIZARD_STEPS, createDefaultWizardData, type QuestWizardData } from "./types";
+import { useWallet } from "@/context/WalletProvider";
 
 function slugify(title: string): string {
   const slug = title
@@ -26,13 +29,15 @@ function slugify(title: string): string {
 export default function QuestWizard({
   onPublish,
 }: {
-  onPublish: (questId: string) => void;
+  onPublish: (result: MissionEscrowResult) => void;
 }) {
   const [data, setDataState] = useState<QuestWizardData>(() => createDefaultWizardData());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [maxReachedIndex, setMaxReachedIndex] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
   const [saved, setSaved] = useState(true);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<MissionEscrowError | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function setData(updater: (prev: QuestWizardData) => QuestWizardData) {
@@ -41,6 +46,8 @@ export default function QuestWizard({
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => setSaved(true), 800);
   }
+
+  const wallet = useWallet();
 
   const stepValid = [
     isBasicsStepValid(data.basics),
@@ -62,11 +69,32 @@ export default function QuestWizard({
     setCurrentIndex((index) => Math.max(0, index - 1));
   }
 
+  async function handlePublish() {
+    setPublishing(true);
+    setPublishError(null);
+
+    try {
+      // Full escrow flow: validate → balance/trustline → IPFS → create_mission.
+      const result = await publishMissionOnChain(data, wallet.publicKey ?? "");
+      onPublish(result);
+    } catch (error: unknown) {
+      setPublishError(
+        error instanceof MissionEscrowError
+          ? error
+          : new MissionEscrowError(
+              error instanceof Error ? error.message : "Publishing the quest failed.",
+            ),
+      );
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   function handleContinue() {
-    if (!stepValid) return;
+    if (!stepValid || publishing) return;
 
     if (isLastStep) {
-      onPublish(slugify(data.basics.title));
+      void handlePublish();
       return;
     }
 
@@ -112,6 +140,17 @@ export default function QuestWizard({
       </div>
 
       <div className="mt-4 flex-1 overflow-y-auto border-t border-foreground/30 px-6 py-6">
+        {publishError ? (
+          <div className="mb-4 flex items-start gap-2 border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-400" />
+            <div>
+              <p className="font-medium">{publishError.message}</p>
+              {publishError.detail ? (
+                <p className="mt-1 text-xs text-red-300/80">{publishError.detail}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {currentIndex === 0 ? (
           <BasicsStep
             data={data.basics}
@@ -160,6 +199,8 @@ export default function QuestWizard({
         isFirstStep={isFirstStep}
         isLastStep={isLastStep}
         canContinue={stepValid}
+        busy={publishing}
+        busyLabel={publishing ? "Escrowing rewards…" : undefined}
         onBack={handleBack}
         onPreview={() => setShowPreview(true)}
         onSaveDraft={handleSaveDraft}

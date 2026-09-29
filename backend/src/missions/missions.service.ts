@@ -8,6 +8,7 @@ import {
 import { MissionStatus, Prisma, SubmissionStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { AiSummaryService } from '../ai/ai-summary.service';
 import {
   ListMissionsQueryDto,
   MissionListSort,
@@ -49,7 +50,10 @@ function sanitizeDraftData(data: DraftData): DraftDataInput {
 
 @Injectable()
 export class MissionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly aiSummary: AiSummaryService,
+  ) {}
 
   async listPublicMissions(query: ListMissionsQueryDto): Promise<unknown> {
     const normalizedStatus = query.status?.toUpperCase() as
@@ -261,5 +265,25 @@ export class MissionsService {
     return this.prisma.submission.findUnique({
       where: { id: submissionId },
     });
+  }
+
+  /**
+   * Issue #315: record reviewer-written text on a submission and kick off the
+   * async AI summary/sentiment job once the payload is available. Fire-and-
+   * forget so the review endpoint latency is unaffected.
+   */
+  async attachSubmissionText(
+    missionId: string,
+    submissionId: string,
+    text: string,
+  ): Promise<void> {
+    const updated = await this.prisma.submission.updateMany({
+      where: { id: submissionId, missionId },
+      data: { textPayload: text },
+    });
+
+    if (updated.count === 1 && text.trim()) {
+      void this.aiSummary.enqueueForMission(missionId);
+    }
   }
 }

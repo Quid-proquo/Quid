@@ -12,6 +12,7 @@ enum UserRole {
 }
 
 enum MissionStatus {
+ CREATED
  OPEN
  STARTED
  PAUSED
@@ -47,17 +48,21 @@ model User {
 
 model Mission {
  id String @id @default(uuid()) @map("id")
+ onChainId BigInt? @unique @map("on_chain_id")
  ownerAddress String @map("owner_address")
  title String @map("title")
  descriptionCid String @map("description_cid")
  metadataCid String @map("metadata_cid")
  metadata Json @map("metadata")
  rewardToken String @map("reward_token")
- rewardAmount String @map("reward_amount")
+ rewardAmount String @map("reward_amount") // i128 stroops as string (lossless)
  maxParticipants Int @default(0) @map("max_participants")
  participantsCount Int @default(0) @map("participants_count")
  status MissionStatus @default(OPEN) @map("status")
- aiSummary String @map("ai_summary")
+ minAssetToken String? @map("min_asset_token")
+ minAssetAmount String @default("0") @map("min_asset_amount") // i128 stroops as string
+ escrowTxHash String? @map("escrow_tx_hash")
+ aiSummary String @default("") @map("ai_summary")
  createdAt DateTime @default(now()) @map("created_at")
  updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -66,6 +71,7 @@ model Mission {
 
  @@index([ownerAddress])
  @@index([status, createdAt(sort: Desc)])
+ @@index([onChainId])
  @@map("missions")
 }
 
@@ -91,6 +97,10 @@ model Submission {
  textPayload String? @map("text_payload")
  sentiment Float? @map("sentiment")
  status SubmissionStatus @default(PENDING) @map("status")
+ stakeAmount String @default("0") @map("stake_amount") // i128 stroops as string
+ stakeToken String? @map("stake_token")
+ stakeTxHash String? @map("stake_tx_hash")
+ submittedAtLedger BigInt? @map("submitted_at_ledger")
  rejectionReason String? @map("rejection_reason")
  createdAt DateTime @default(now()) @map("created_at")
  updatedAt DateTime @updatedAt @map("updated_at")

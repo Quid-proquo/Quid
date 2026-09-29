@@ -5,13 +5,14 @@ import { useState } from "react";
 import QuestsHub from "@/components/creator/quests/QuestsHub";
 import QuestWizard from "@/components/creator/quests/wizard/QuestWizard";
 import PublishSuccess from "@/components/creator/quests/wizard/PublishSuccess";
+import type { MissionEscrowResult } from "@/lib/mission-escrow";
 
 export default function CreateQuestPage() {
   const router = useRouter();
-  const [publishedQuestId, setPublishedQuestId] = useState<string | null>(null);
+  const [published, setPublished] = useState<MissionEscrowResult | null>(null);
 
-  if (publishedQuestId) {
-    return <PublishSuccess questId={publishedQuestId} />;
+  if (published) {
+    return <PublishSuccess result={published} />;
   }
 
   return (
@@ -29,7 +30,7 @@ export default function CreateQuestPage() {
         />
 
         <div className="absolute inset-y-0 right-0 w-full border-l border-foreground/30 bg-background brutal-grid-bg shadow-2xl sm:w-[45%]">
-          <QuestWizard onPublish={setPublishedQuestId} />
+          <QuestWizard onPublish={setPublished} />
         </div>
       </div>
     </>
