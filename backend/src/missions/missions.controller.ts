@@ -47,6 +47,13 @@ export class MissionsController {
     return this.missionsService.getLatestDraft(req.user.address);
   }
 
+  // Declared before ':id' so the static segment is not swallowed by the
+  // parametrised route.
+  @Get('on-chain/:onChainId')
+  detailByOnChainId(@Param('onChainId') onChainId: string): Promise<unknown> {
+    return this.missionsService.getMissionByOnChainId(onChainId);
+  }
+
   @Get(':id')
   detail(@Param('id') id: string): Promise<unknown> {
     return this.missionsService.getMission(id);

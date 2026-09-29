@@ -169,6 +169,41 @@ describe('MissionsService', () => {
     });
   });
 
+  describe('getMissionByOnChainId', () => {
+    it('resolves a mission by its on-chain contract id', async () => {
+      const mockMission = {
+        id: 'mission-1',
+        onChainId: 'CONTRACT_1',
+        owner: {
+          address: '0xabc',
+          displayName: 'Alice',
+          email: 'alice@example.com',
+        },
+        _count: { submissions: 2 },
+      };
+      prisma.mission.findUnique.mockResolvedValue(mockMission);
+
+      const result = (await service.getMissionByOnChainId(
+        'CONTRACT_1',
+      )) as typeof mockMission;
+
+      expect(prisma.mission.findUnique).toHaveBeenCalledWith({
+        where: { onChainId: 'CONTRACT_1' },
+        include: detailInclude,
+      });
+      expect(result.id).toBe('mission-1');
+      expect(result._count.submissions).toBe(2);
+    });
+
+    it('throws NotFoundException when the on-chain id is not published yet', async () => {
+      prisma.mission.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.getMissionByOnChainId('CONTRACT_UNKNOWN'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('getMissionSubmissions', () => {
     it('returns submissions ordered by createdAt desc for the mission owner', async () => {
       prisma.mission.findUnique.mockResolvedValue({

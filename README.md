@@ -68,16 +68,49 @@ IPFS (feedback blobs; CID stored on-chain)
 | Service | Port | Default URL | Purpose |
 |---------|------|-------------|---------|
 | **Frontend** | `3000` | `http://localhost:3000` | Next.js web application |
-| **Backend API** | `3001` | `http://localhost:3001` | NestJS REST API |
+| **Backend API** | `3001` | `http://localhost:3001/api` | NestJS REST API (all routes are prefixed with `/api`) |
 | **PostgreSQL** | `5432` | `localhost:5432` | Postgres database |
 | **Stellar Testnet Horizon** | Remote | `https://horizon-testnet.stellar.org` | Stellar Horizon testnet endpoint |
 | **Stellar Testnet RPC** | Remote | `https://soroban-testnet.stellar.org` | Soroban RPC testnet endpoint |
 
 ---
 
+## Deploy Checklist
+
+This is the canonical order for a fresh local environment. Each step links to
+the detailed section below; contract-specific variants live in
+[quid-contract/README.md](./quid-contract/README.md).
+
+- [ ] **1. Prerequisites** — Node 18+, Docker, Stellar CLI, Freighter on Testnet.
+- [ ] **2. Database** — start Postgres and apply Prisma migrations.
+- [ ] **3. Build contracts** — `stellar contract build` (produces the `*.wasm` files).
+- [ ] **4. Deploy the three core contracts** — `quid-store`, `quid-reputation`,
+      `quid-milestone-escrow`. Keep the printed `C...` IDs; you need them twice.
+- [ ] **5. Initialize reputation** — one-time `initialize --admin <deployer>` call
+      against `quid-reputation`. Skipping this leaves reputation read-only
+      (`get_admin` reverts) and is the most common first-deploy failure.
+- [ ] **6. Configure the backend** — `backend/.env` from `backend/.env.example`:
+      `DATABASE_URL`, `PORT`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`,
+      `STELLAR_SERVER_SECRET`, `HOME_DOMAIN`, `WEB_AUTH_DOMAIN`,
+      `STELLAR_NETWORK`.
+- [ ] **7. Configure the frontend** — `frontend/.env.local` from
+      `frontend/.env.example`: the three contract IDs from step 4, plus
+      `NEXT_PUBLIC_SOROBAN_RPC_URL`, `NEXT_PUBLIC_HORIZON_URL`,
+      `NEXT_PUBLIC_NATIVE_TOKEN_ID`, and `NEXT_PUBLIC_API_URL`
+      (must include the `/api` suffix).
+- [ ] **8. Verify** — backend `GET /api/health` returns `200`, then load
+      `http://localhost:3000` with Freighter connected to Testnet.
+
+> Never commit a filled `.env` / `.env.local`. Both templates contain
+> placeholders only, and `.env*` files are gitignored.
+
+---
+
 ## Full-Stack Local Demo Guide
 
-Follow this step-by-step guide to run the entire Quid stack locally in under an hour.
+Follow this step-by-step guide to run the entire Quid stack locally in under an
+hour. It follows the same order as the [Deploy Checklist](#deploy-checklist)
+above.
 
 ### 1. Prerequisites
 
@@ -123,6 +156,8 @@ Ensure `backend/.env` contains:
 DATABASE_URL="postgresql://quid:quid@localhost:5432/quid_dev?schema=public"
 PORT=3001
 JWT_SECRET="dev-jwt-secret-key-change-in-production"
+# Comma-separated allowlist. Unset falls back to http://localhost:3000.
+CORS_ALLOWED_ORIGINS=http://localhost:3000
 STELLAR_SERVER_SECRET="SBAY...YOUR_SERVER_SECRET_KEY"
 HOME_DOMAIN="localhost"
 WEB_AUTH_DOMAIN="localhost"
@@ -140,7 +175,8 @@ npm run prisma:migrate
 npm run start:dev
 ```
 
-Verify backend health at [http://localhost:3001/health](http://localhost:3001/health).
+Verify backend health at [http://localhost:3001/api/health](http://localhost:3001/api/health)
+— every backend route sits behind the `/api` prefix.
 
 ---
 
@@ -154,11 +190,15 @@ To interact with real on-chain contracts on Stellar Testnet:
    stellar keys fund alice --network testnet
    ```
 
-2. Build and deploy contracts:
+2. **Build** every contract:
    ```bash
    cd quid-contract
    stellar contract build
+   ```
 
+3. **Deploy the three core contracts** (in this order — the store is the vault
+   the others attach to):
+   ```bash
    # Deploy quid-store
    STORE_ID=$(stellar contract deploy \
      --wasm target/wasm32v1-none/release/quid_store.wasm \
@@ -179,14 +219,19 @@ To interact with real on-chain contracts on Stellar Testnet:
      --source alice \
      --network testnet)
    echo "MILESTONE_ID: $MILESTONE_ID"
+   ```
 
-   # Initialize reputation contract admin
+4. **Initialize reputation** (one-time; without it `get_admin` and every
+   attestation call revert):
+   ```bash
    stellar contract invoke \
      --id $REP_ID \
      --source alice \
      --network testnet \
      -- initialize --admin alice
    ```
+
+Write the three IDs down — step 7 needs them.
 
 *(For local testing without deploying contracts, you can use the placeholder IDs provided in `frontend/.env.example`.)*
 
@@ -214,16 +259,28 @@ cd frontend
 cp .env.example .env.local
 ```
 
-Edit `frontend/.env.local` to match your backend port (`3001`) and deployed contract IDs:
+Edit `frontend/.env.local` to match your backend port (`3001`) and the contract
+IDs from step 4. `.env.example` is the authoritative list:
 
 ```env
+# Contract IDs from step 4
 NEXT_PUBLIC_QUID_STORE_ID=<STORE_ID_OR_PLACEHOLDER>
 NEXT_PUBLIC_QUID_REPUTATION_ID=<REP_ID_OR_PLACEHOLDER>
 NEXT_PUBLIC_QUID_MILESTONE_ID=<MILESTONE_ID_OR_PLACEHOLDER>
+
+# Stellar network
+NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 NEXT_PUBLIC_FRIENDBOT_URL=https://friendbot.stellar.org
-NEXT_PUBLIC_API_URL=http://localhost:3001
+# Asset used for bounties/payouts; the Soroban contract address, not "XLM".
+NEXT_PUBLIC_NATIVE_TOKEN_ID=<NATIVE_TOKEN_CONTRACT_ID_OR_PLACEHOLDER>
+
+# Backend API — the /api suffix is required (backend sets a global prefix)
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
 ```
+
+> `NEXT_PUBLIC_*` values are inlined into the client bundle at build time, so
+> rebuild (or restart the dev server) after changing them.
 
 Install dependencies and start the Next.js development server:
 
@@ -240,7 +297,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### 1. Port Conflicts & CORS Errors
 - **Issue:** Frontend shows network/CORS error when calling API (`http://localhost:3001`).
-- **Fix:** Verify backend is running on port `3001` (check `PORT=3001` in `backend/.env`). If backend runs on port `3000` by accident, it will collide with Next.js. Backend CORS is enabled by default via `app.enableCors()`.
+- **Fix:** Verify backend is running on port `3001` (check `PORT=3001` in `backend/.env`). If backend runs on port `3000` by accident, it will collide with Next.js. CORS is **allowlist-based**: with `CORS_ALLOWED_ORIGINS` unset only `http://localhost:3000` is allowed, so add your frontend origin (comma-separated) if you serve it elsewhere.
 
 ### 2. Freighter Network Mismatch or Unfunded Account
 - **Issue:** Freighter transactions fail or reject immediately.
@@ -258,6 +315,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### 4. Contract Invocation Errors
 - **Issue:** Contract call reverts or contract not found.
 - **Fix:** Ensure contract IDs in `frontend/.env.local` match the exact addresses output during `stellar contract deploy` on Testnet (starting with `C...`).
+
+### 5. Reputation Calls Revert
+- **Issue:** `get_admin` / `issue_attestation` reverts with an authorization or state error.
+- **Fix:** `quid-reputation` is uninitialized until you run `initialize --admin <deployer>` (step 5 of the [Deploy Checklist](#deploy-checklist)). It can only be initialized once per deployment.
 
 ## Roles
 

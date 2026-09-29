@@ -58,6 +58,10 @@ model Mission {
  participantsCount Int @default(0) @map("participants_count")
  status MissionStatus @default(OPEN) @map("status")
  aiSummary String @map("ai_summary")
+ /// Soroban contract id of the mission on `quid-store`, e.g. "C...".
+ /// NULL until the creator publishes the mission on-chain; unique so one
+ /// on-chain mission maps to exactly one off-chain row.
+ onChainId String? @unique @map("on_chain_id")
  createdAt DateTime @default(now()) @map("created_at")
  updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -65,6 +69,7 @@ model Mission {
  submissions Submission[]
 
  @@index([ownerAddress])
+
  @@index([status, createdAt(sort: Desc)])
  @@map("missions")
 }

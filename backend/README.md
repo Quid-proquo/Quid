@@ -24,10 +24,11 @@ The frontend should call this API for browse/auth/upload; Freighter should call 
 
 | Feature | Status |
 |---------|--------|
-| `GET /health` | Live |
+| `GET /api/health` | Live |
 | SEP-10 challenge + verify → JWT | Live |
 | Mission list / detail / `me` / submissions (read) | Live |
-| Mission drafts (`POST /missions/drafts`) | Live |
+| Mission lookup by on-chain id (`onChainId`) | Live |
+| Mission drafts (`POST /api/missions/drafts`) | Live |
 | Upload endpoints | Stub (acks bytes/JSON only — no IPFS) |
 | Chain indexer cron | Scaffold (checkpoint only — no event sync) |
 
@@ -35,7 +36,7 @@ The frontend should call this API for browse/auth/upload; Freighter should call 
 
 - Real IPFS / Pinata (or similar) pinning → return CID
 - Indexer: poll `quid-store` events → upsert missions/submissions
-- Publish mission after on-chain create (persist `onChainId`)
+- Attach a published on-chain mission to its off-chain row (the `onChainId` column and lookup route now exist; the publish call itself is still frontend work)
 - Create submission / approve / reject API flows synced with chain
 - Hardening: rate limits, locked-down CORS, production secrets
 - Frontend not wired to this API yet
@@ -82,22 +83,23 @@ npm run prisma:migrate
 npm run start:dev
 ```
 
-API: [http://localhost:3001](http://localhost:3001)
+API base: [http://localhost:3001/api](http://localhost:3001/api) (all routes carry the `/api` prefix)
 
 ## HTTP surface
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| `GET` | `/health` | No | Health check |
-| `GET` | `/auth/challenge?address=` | No | SEP-10 challenge |
-| `POST` | `/auth/verify` | No | Returns JWT |
-| `GET` | `/missions` | No | List / filter |
-| `GET` | `/missions/me` | JWT | Caller’s missions |
-| `GET` | `/missions/:id` | No | Detail |
-| `GET` | `/missions/:id/submissions` | JWT | Owner only |
-| `POST` | `/missions/drafts` | JWT | Save draft |
-| `POST` | `/upload` | JWT | Stub |
-| `POST` | `/upload/json` | JWT | Stub |
+| `GET` | `/api/health` | No | Health check |
+| `GET` | `/api/auth/challenge?address=` | No | SEP-10 challenge |
+| `POST` | `/api/auth/verify` | No | Returns JWT |
+| `GET` | `/api/missions` | No | List / filter |
+| `GET` | `/api/missions/me` | JWT | Caller’s missions |
+| `GET` | `/api/missions/on-chain/:onChainId` | No | Detail by `quid-store` contract id |
+| `GET` | `/api/missions/:id` | No | Detail |
+| `GET` | `/api/missions/:id/submissions` | JWT | Owner only |
+| `POST` | `/api/missions/drafts` | JWT | Save draft |
+| `POST` | `/api/upload` | JWT | Stub |
+| `POST` | `/api/upload/json` | JWT | Stub |
 
 ## Scripts
 
