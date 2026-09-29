@@ -1065,6 +1065,7 @@ name = "quid-store"
 version = "0.0.0"
 dependencies = [
  "quid-fee-collector",
+ "quid-reputation",
  "quid-staking",
  "soroban-sdk",
 ]
