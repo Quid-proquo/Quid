@@ -14,13 +14,19 @@ Soroban (Rust) smart contracts for Quid: bounty escrow, reputation, milestone pr
 | `quid-badge-nft` | `quid_badge_nft.wasm` | Badge NFTs for completed missions / reputation tiers |
 | `quid-fee-collector` | `quid_fee_collector.wasm` | Protocol fee vault: configurable cut, per-token balances, admin withdrawal |
 | `quid-mission-factory` | `quid_mission_factory.wasm` | Curated mission templates that launch into configured store instances |
-| `hello-world` | `hello_world.wasm` | Scaffold only — safe to ignore |
 
 ## Prerequisites
 
 - Rust (stable)
 - [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools) (`stellar`) — use a version compatible with Soroban SDK 23
 - Testnet account (Friendbot)
+
+> **Note on the `hello-world` scaffold:** the upstream Soroban template package
+> `contracts/hello-world` was removed from this workspace. It was never
+> referenced by Quid, and because the workspace globs `contracts/*` it was
+> compiled, linted and snapshotted by every CI run for no benefit. New contracts
+> should be scaffolded from an existing package here rather than from the
+> upstream template.
 
 ```bash
 stellar --version
@@ -257,27 +263,23 @@ cargo test -p quid-mission-factory
   (the badge contract already exposes the minter allow-list for it)
 - Align milestone status helpers with production auth rules
 - Wire `quid-dispute` into store reject / payout holds
-- Remove or archive `hello-world`
 
 ## Workspace layout
 
-```text
-quid-contract/
-├── Cargo.toml                 # workspace (soroban-sdk 23)
-└── contracts/
-    ├── quid-store/
-    ├── quid-reputation/
-    ├── quid-milestone-escrow/
-    ├── quid-referral/
-    ├── quid-dispute/
-    ├── quid-badge-nft/
-    ├── quid-fee-collector/
-    ├── quid-mission-factory/
-    └── hello-world/
-```
+Members are picked up by the `contracts/*` glob in the workspace
+`Cargo.toml`, so adding a directory is all it takes to add a contract — no
+manifest edit required. The `Contracts` table above is the canonical list of
+what Quid ships; the remaining entries under `contracts/` are unlisted
+experiments.
+
+A `contracts/hello-world` scaffold used to live here and was removed; see the
+note under [Prerequisites](#prerequisites).
 
 ## Related docs
 
-- Root: [../README.md](../README.md)
+- Root: [../README.md](../README.md) — start with the [Deploy Checklist](../README.md#deploy-checklist)
+  (build → deploy → initialize reputation → fill in FE/BE env)
+- Root env vars: [../frontend/.env.example](../frontend/.env.example),
+  [../backend/.env.example](../backend/.env.example)
 - Frontend env: [../frontend/README.md](../frontend/README.md)
 - Contributing: [../CONTRIBUTING.md](../CONTRIBUTING.md)
