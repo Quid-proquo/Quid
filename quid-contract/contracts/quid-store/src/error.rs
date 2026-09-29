@@ -21,4 +21,11 @@ pub enum QuidError {
     InsufficientAssetBalance = 16,
     FeeCollectorNotSet = 17,
     StakingPoolNotSet = 18,
+    /// `expires_at` is at or before the current ledger timestamp.
+    ExpiryInThePast = 19,
+    /// The mission's deadline has passed: no new submissions are accepted.
+    MissionExpired = 20,
+    /// `expire_mission` was called before the mission's deadline.
+    MissionNotExpired = 21,
+    ReputationNotSet = 22,
 }

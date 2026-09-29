@@ -127,7 +127,8 @@
                       "val": "void"
                     }
                   ]
-                }
+                },
+                "void"
               ]
             }
           },
@@ -384,6 +385,12 @@
                       "val": {
                         "string": "QmDesc"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "expires_at"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
