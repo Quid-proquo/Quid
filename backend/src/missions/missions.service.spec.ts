@@ -78,10 +78,12 @@ describe('MissionsService', () => {
       });
     });
 
-    it('normalizes lowercase status values before querying Prisma', async () => {
+    it('passes an enum-validated status straight through to Prisma', async () => {
       prisma.mission.findMany.mockResolvedValue([]);
 
-      await service.listPublicMissions({ status: 'open' });
+      // The query boundary is the DTO (rejects non-enum values); the service
+      // no longer normalizes, so an already-valid member is passed through.
+      await service.listPublicMissions({ status: MissionStatus.OPEN });
 
       expect(prisma.mission.findMany).toHaveBeenCalledWith({
         where: { status: MissionStatus.OPEN },

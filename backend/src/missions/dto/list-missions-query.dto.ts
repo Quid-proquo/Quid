@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export enum MissionListSort {
   NEWEST = 'newest',
@@ -15,9 +15,11 @@ export enum MissionQueryStatus {
 }
 
 export class ListMissionsQueryDto {
+  // Use enum members rather than `string`: an arbitrary value such as "BOGUS"
+  // would otherwise reach Prisma and surface as a raw driver error.
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(MissionQueryStatus)
+  status?: MissionQueryStatus;
 
   @IsOptional()
   @IsEnum(MissionListSort)
