@@ -13,13 +13,19 @@
  *   6. Verifying a double-approval is rejected (ConflictException)
  */
 
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { SubmissionStatus, MissionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MissionsService } from './missions.service';
 
-const FOUNDER_ADDRESS = 'GFOUNDER111111111111111111111111111111111111111111111111';
-const HUNTER_ADDRESS = 'GHUNTER1111111111111111111111111111111111111111111111111';
+const FOUNDER_ADDRESS =
+  'GFOUNDER111111111111111111111111111111111111111111111111';
+const HUNTER_ADDRESS =
+  'GHUNTER1111111111111111111111111111111111111111111111111';
 const MISSION_ID = 'mission-happy-path-1';
 const SUBMISSION_ID = 'submission-happy-path-1';
 
@@ -65,7 +71,11 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
       findUnique: jest.Mock;
       updateMany: jest.Mock;
     };
-    missionDraft: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock };
+    missionDraft: {
+      findFirst: jest.Mock;
+      update: jest.Mock;
+      create: jest.Mock;
+    };
   };
 
   beforeEach(() => {
@@ -76,7 +86,11 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
-      missionDraft: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
+      missionDraft: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+      },
     };
     service = new MissionsService(prisma as unknown as PrismaService);
   });
@@ -88,7 +102,9 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
     it('founder can list OPEN missions (mission is visible to hunters)', async () => {
       prisma.mission.findMany.mockResolvedValue([baseMission]);
 
-      const result = (await service.listPublicMissions({ status: 'OPEN' })) as typeof baseMission[];
+      const result = (await service.listPublicMissions({
+        status: 'OPEN',
+      })) as (typeof baseMission)[];
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe(MISSION_ID);
@@ -103,10 +119,16 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
     it('hunter can fetch a single mission by ID', async () => {
       prisma.mission.findUnique.mockResolvedValue({
         ...baseMission,
-        owner: { address: FOUNDER_ADDRESS, displayName: 'Ruze Team', email: 'ruze@example.com' },
+        owner: {
+          address: FOUNDER_ADDRESS,
+          displayName: 'Ruze Team',
+          email: 'ruze@example.com',
+        },
       });
 
-      const result = (await service.getMission(MISSION_ID)) as typeof baseMission;
+      const result = (await service.getMission(
+        MISSION_ID,
+      )) as typeof baseMission;
 
       expect(result.id).toBe(MISSION_ID);
       expect(result.status).toBe(MissionStatus.OPEN);
@@ -115,7 +137,9 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
     it('returns NotFoundException for a nonexistent mission ID', async () => {
       prisma.mission.findUnique.mockResolvedValue(null);
 
-      await expect(service.getMission('nonexistent')).rejects.toThrow(NotFoundException);
+      await expect(service.getMission('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -130,7 +154,10 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
       });
       prisma.submission.findMany.mockResolvedValue([]);
 
-      const result = (await service.getMissionSubmissions(MISSION_ID, FOUNDER_ADDRESS)) as unknown[];
+      const result = (await service.getMissionSubmissions(
+        MISSION_ID,
+        FOUNDER_ADDRESS,
+      )) as unknown[];
 
       expect(result).toHaveLength(0);
     });
@@ -161,7 +188,7 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
       const result = (await service.getMissionSubmissions(
         MISSION_ID,
         FOUNDER_ADDRESS,
-      )) as typeof pendingSubmission[];
+      )) as (typeof pendingSubmission)[];
 
       expect(result).toHaveLength(1);
       expect(result[0].hunterAddress).toBe(HUNTER_ADDRESS);
@@ -175,7 +202,9 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
   // -------------------------------------------------------------------------
   describe('Step 5 – Founder approves submission (payout)', () => {
     beforeEach(() => {
-      prisma.mission.findUnique.mockResolvedValue({ ownerAddress: FOUNDER_ADDRESS });
+      prisma.mission.findUnique.mockResolvedValue({
+        ownerAddress: FOUNDER_ADDRESS,
+      });
       prisma.submission.findUnique
         .mockResolvedValueOnce({
           id: SUBMISSION_ID,
@@ -224,7 +253,9 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
   // -------------------------------------------------------------------------
   describe('Step 6 – Double-approval prevention', () => {
     it('rejects a second approval attempt with ConflictException', async () => {
-      prisma.mission.findUnique.mockResolvedValue({ ownerAddress: FOUNDER_ADDRESS });
+      prisma.mission.findUnique.mockResolvedValue({
+        ownerAddress: FOUNDER_ADDRESS,
+      });
       // Submission is already APPROVED (terminal state)
       prisma.submission.findUnique.mockResolvedValue({
         id: SUBMISSION_ID,
