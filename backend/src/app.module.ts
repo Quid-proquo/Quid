@@ -11,6 +11,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { UploadModule } from './upload/upload.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { UsersModule } from './users/users.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -36,6 +37,8 @@ import { UsersModule } from './users/users.module';
     MissionsModule,
     UploadModule,
     IndexerModule,
+    // Issue #315: AI summary + sentiment job for submissions.
+    AiModule,
   ],
   controllers: [AppController],
   providers: [
