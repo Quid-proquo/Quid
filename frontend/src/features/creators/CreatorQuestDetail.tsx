@@ -1,11 +1,18 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { CheckCircle, AlertCircle } from "lucide-react";
 import EmptyState from "./EmptyState";
 import QuestHeader from "./QuestHeader";
 import SubmissionCard from "./SubmissionCard";
 import TaskInfo from "./TaskInfo";
+import NetworkMismatchBanner from "@/components/wallet/NetworkMismatchBanner";
 import { Submission, Quest } from "@/app/hooks/useQuestData";
+import { useWallet } from "@/context/WalletProvider";
+import { payoutParticipantToContract } from "@/lib/soroban-client";
+import { parseQuidError } from "@/lib/errorMap";
+
+type Notification = { type: "success" | "error"; message: string };
 
 export default function CreatorQuestDetail({
   quest,
@@ -19,19 +26,70 @@ export default function CreatorQuestDetail({
   isActive?: boolean;
 }) {
   const router = useRouter();
+  const { publicKey, connected, isNetworkMismatch } = useWallet();
   const [approvedSubmissions, setApprovedSubmissions] = useState<string[]>([]);
   const [rejectedSubmissions, setRejectedSubmissions] = useState<string[]>([]);
   const [rejectConfirm, setRejectConfirm] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<Notification | null>(null);
 
-  const handleApprove = (submissionId: string) => {
-    setApprovedSubmissions((prev) => {
-      if (prev.includes(submissionId)) {
-        return prev.filter((id) => id !== submissionId);
-      }
-      return [...prev, submissionId];
-    });
-    setRejectedSubmissions((prev) => prev.filter((id) => id !== submissionId));
+  /**
+   * `payout_participant` calls `mission.owner.require_auth()` on-chain, so the
+   * UI blocks earlier rather than letting the founder burn a signing prompt on
+   * a call that can only revert.
+   */
+  const isOwner = Boolean(
+    connected && publicKey && quest?.ownerAddress === publicKey,
+  );
+
+  const canPay = isOwner && !isNetworkMismatch && quest?.missionId != null;
+
+  const handleApprove = async (submission: Submission) => {
+    if (!canPay || quest?.missionId == null) return;
+    if (!submission.hunterAddress) {
+      setNotification({
+        type: "error",
+        message: "This submission has no wallet address, so it cannot be paid.",
+      });
+      return;
+    }
+
+    setPayingId(submission.id);
+    setNotification(null);
+
+    try {
+      const receipt = await payoutParticipantToContract({
+        missionId: quest.missionId,
+        hunterAddress: submission.hunterAddress,
+        ownerAddress: publicKey as string,
+      });
+
+      setApprovedSubmissions((prev) =>
+        prev.includes(submission.id)
+          ? prev
+          : [...prev, submission.id],
+      );
+      setRejectedSubmissions((prev) =>
+        prev.filter((id) => id !== submission.id),
+      );
+      setNotification({
+        type: "success",
+        message: `Paid ${submission.user}. Tx ${receipt.txHash.slice(0, 8)}…`,
+      });
+    } catch (error: unknown) {
+      // Map the numeric contract code (AlreadyPaid, MissionClosed,
+      // NotAuthorized, ...) onto a message the founder can act on.
+      const info = parseQuidError(
+        error instanceof Error ? error.message : error,
+      );
+      setNotification({
+        type: "error",
+        message: `${info.title} — ${info.description}`,
+      });
+    } finally {
+      setPayingId(null);
+    }
   };
 
   const handleReject = (submissionId: string) => {
@@ -61,6 +119,29 @@ export default function CreatorQuestDetail({
   return (
     <div className="text-foreground px-3 py-1">
       <QuestHeader />
+      <NetworkMismatchBanner />
+      {connected && !isOwner && (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Connect the founder wallet to release payouts for this quest.
+        </p>
+      )}
+      {notification && (
+        <div
+          role="status"
+          className={`mt-3 flex items-center gap-2 px-4 py-3 text-sm ${
+            notification.type === "success"
+              ? "bg-green-500/10 border border-green-500/30 text-green-300"
+              : "bg-red-500/10 border border-red-500/30 text-red-300"
+          }`}
+        >
+          {notification.type === "success" ? (
+            <CheckCircle className="h-5 w-5 shrink-0" />
+          ) : (
+            <AlertCircle className="h-5 w-5 shrink-0" />
+          )}
+          <p>{notification.message}</p>
+        </div>
+      )}
       <div className="font-inter flex justify-between items-center w-full">
         <div className="flex flex-col justify-normal items-start gap-2 text-foreground py-6">
           <h2 className="text-2xl md:text-4xl font-bold">{quest?.title || "Quest"}</h2>
@@ -168,9 +249,18 @@ export default function CreatorQuestDetail({
                 <div key={sub.id}>
                   <SubmissionCard
                     submission={{ ...sub, status: getEffectiveStatus(sub) }}
-                    onApprove={() => handleApprove(sub.id)}
+                    onApprove={() => void handleApprove(sub)}
                     onReject={() => setRejectConfirm(sub.id)}
                     isApproved={approvedSubmissions.includes(sub.id)}
+                    isPaying={payingId === sub.id}
+                    approveDisabled={!canPay}
+                    approveDisabledReason={
+                      isNetworkMismatch
+                        ? "Switch your wallet to the correct network to pay out"
+                        : !isOwner
+                          ? "Only the quest founder can release a payout"
+                          : undefined
+                    }
                   />
                   {rejectConfirm === sub.id && (
                     <div className="mx-4 mb-4 bg-[#1A1330] border border-red-500/30  p-4">
