@@ -80,6 +80,8 @@ model MissionDraft {
  ownerAddress String @map("owner_address")
  title String @map("title")
  data Json @map("data")
+ publishedAt DateTime? @map("published_at")
+ publishedMissionId String? @unique @map("published_mission_id")
  createdAt DateTime @default(now()) @map("created_at")
  updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -102,6 +104,8 @@ model Submission {
  stakeTxHash String? @map("stake_tx_hash")
  submittedAtLedger BigInt? @map("submitted_at_ledger")
  rejectionReason String? @map("rejection_reason")
+ txHash String? @unique @map("tx_hash")
+ chainConfirmed Boolean @default(false) @map("chain_confirmed")
  createdAt DateTime @default(now()) @map("created_at")
  updatedAt DateTime @updatedAt @map("updated_at")
 

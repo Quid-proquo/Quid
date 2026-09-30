@@ -1915,3 +1915,147 @@ fn test_get_fee_collector_before_configuration() {
         Err(Ok(QuidError::FeeCollectorNotSet))
     );
 }
+
+// -----------------------------------------------------------------------------
+// Moderation gate (quid-moderation-registry integration, #305)
+// -----------------------------------------------------------------------------
+
+use quid_moderation_registry::{
+    QuidModerationRegistryContract, QuidModerationRegistryContractClient,
+};
+
+/// Register a moderation registry with one moderator and wire it into the store.
+fn setup_moderation<'a>(
+    env: &Env,
+    store_id: &Address,
+) -> (QuidModerationRegistryContractClient<'a>, Address) {
+    let registry_id = env.register(QuidModerationRegistryContract, ());
+    let registry = QuidModerationRegistryContractClient::new(env, &registry_id);
+    registry.initialize(&Address::generate(env));
+    let moderator = Address::generate(env);
+    registry.set_moderator(&moderator, &true);
+
+    QuidStoreContractClient::new(env, store_id).set_moderation_registry(&registry_id);
+    (registry, moderator)
+}
+
+#[test]
+fn test_banned_hunter_cannot_submit() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+    let (registry, moderator) = setup_moderation(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+
+    registry.ban(&moderator, &hunter);
+
+    let cid = String::from_str(&env, "QmBanned");
+    assert_eq!(
+        client.try_submit_feedback(&mission_id, &hunter, &cid, &token_address, &10),
+        Err(Ok(QuidError::HunterBanned))
+    );
+    // Rejected before any stake moved or state changed.
+    assert_eq!(token_client.balance(&hunter), 1000);
+    assert_eq!(client.get_mission(&mission_id).participants_count, 0);
+}
+
+#[test]
+fn test_unbanned_hunter_can_submit_again() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let (registry, moderator) = setup_moderation(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+
+    registry.ban(&moderator, &hunter);
+    registry.unban(&moderator, &hunter);
+
+    let cid = String::from_str(&env, "QmBack");
+    client.submit_feedback(&mission_id, &hunter, &cid, &token_address, &10);
+}
+
+#[test]
+fn test_muted_hunter_blocked_until_mute_expires() {
+    use soroban_sdk::testutils::Ledger;
+
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let (registry, moderator) = setup_moderation(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+
+    env.ledger().set_timestamp(1_000);
+    registry.mute(&moderator, &hunter, &2_000);
+
+    let cid = String::from_str(&env, "QmMuted");
+    assert_eq!(
+        client.try_submit_feedback(&mission_id, &hunter, &cid, &token_address, &10),
+        Err(Ok(QuidError::HunterBanned))
+    );
+
+    env.ledger().set_timestamp(2_000);
+    client.submit_feedback(&mission_id, &hunter, &cid, &token_address, &10);
+}
+
+#[test]
+fn test_ban_only_affects_the_banned_hunter() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let (registry, moderator) = setup_moderation(&env, &contract_id);
+
+    let banned = Address::generate(&env);
+    let honest = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &banned, 1000);
+    mint_tokens_for_hunter(&env, &token_address, &honest, 1000);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+
+    registry.ban(&moderator, &banned);
+
+    let cid = String::from_str(&env, "QmHonest");
+    client.submit_feedback(&mission_id, &honest, &cid, &token_address, &10);
+    assert!(client
+        .try_submit_feedback(&mission_id, &banned, &cid, &token_address, &10)
+        .is_err());
+}
+
+#[test]
+fn test_submissions_unaffected_without_a_registry() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+
+    assert_eq!(
+        client.try_get_moderation_registry(),
+        Err(Ok(QuidError::ModerationRegistryNotSet))
+    );
+    let cid = String::from_str(&env, "QmNoRegistry");
+    client.submit_feedback(&mission_id, &hunter, &cid, &token_address, &10);
+}
+
+#[test]
+fn test_moderation_registry_slot_is_transferable() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let (first, first_mod) = setup_moderation(&env, &contract_id);
+    let (second, _) = setup_moderation(&env, &contract_id);
+    assert_eq!(client.get_moderation_registry(), second.address);
+
+    // A ban in the old registry no longer applies once the slot moved.
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1000);
+    first.ban(&first_mod, &hunter);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    let cid = String::from_str(&env, "QmMoved");
+    client.submit_feedback(&mission_id, &hunter, &cid, &token_address, &10);
+}
