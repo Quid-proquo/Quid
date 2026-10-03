@@ -34,10 +34,12 @@ export type Submission = {
 export function useQuestData(questId: string) {
   const [quest, setQuest] = useState<Quest | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Replace with actual data fetching logic
     async function fetchQuestData() {
+      setLoading(true);
       // Example: fetch quest and submissions from an API
       // const questRes = await fetch(`/api/quests/${questId}`);
       // const questData = await questRes.json();
@@ -70,9 +72,10 @@ export function useQuestData(questId: string) {
           hunterAddress: "GHUNTEREXAMPLEADDRESS0000000000000000000000000",
         },
       ]);
+      setLoading(false);
     }
     fetchQuestData();
   }, [questId]);
 
-  return { quest, submissions };
+  return { quest, submissions, loading };
 }
