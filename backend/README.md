@@ -29,14 +29,13 @@ The frontend should call this API for browse/auth/upload; Freighter should call 
 | Mission list / detail / `me` / submissions (read) | Live |
 | Mission lookup by on-chain id (`onChainId`) | Live |
 | Mission drafts (`POST /api/missions/drafts`) | Live |
+| Draft publish / on-chain mission attachment | Live |
 | Upload endpoints | Stub (acks bytes/JSON only — no IPFS) |
-| Chain indexer cron | Scaffold (checkpoint only — no event sync) |
+| Chain indexer cron | Live (quid-store create, submit, payout, cancel, and pause events) |
 
 ## What’s missing (MVP gaps)
 
 - Real IPFS / Pinata (or similar) pinning → return CID
-- Indexer: poll `quid-store` events → upsert missions/submissions
-- Attach a published on-chain mission to its off-chain row (the `onChainId` column and lookup route now exist; the publish call itself is still frontend work)
 - Create submission / approve / reject API flows synced with chain
 - Hardening: rate limits, locked-down CORS, production secrets
 - Frontend not wired to this API yet
@@ -71,7 +70,7 @@ cp .env.example .env
 | `STELLAR_SERVER_SECRET` | Server keypair secret for SEP-10 |
 | `HOME_DOMAIN` / `WEB_AUTH_DOMAIN` | SEP-10 domains |
 | `STELLAR_NETWORK` | Network passphrase (testnet by default) |
-| `RPC_URL` / `CONTRACT_ID` | For indexer (when implemented) |
+| `RPC_URL` / `CONTRACT_ID` | Soroban RPC endpoint and `quid-store` contract ID for event indexing |
 
 Generate a Stellar keypair for `STELLAR_SERVER_SECRET` (keep it server-side only).
 
@@ -98,8 +97,34 @@ API base: [http://localhost:3001/api](http://localhost:3001/api) (all routes car
 | `GET` | `/api/missions/:id` | No | Detail |
 | `GET` | `/api/missions/:id/submissions` | JWT | Owner only |
 | `POST` | `/api/missions/drafts` | JWT | Save draft |
+| `POST` | `/api/missions/drafts/:draftId/publish` | JWT | Publish an owned draft after on-chain creation; creates or enriches the linked mission |
+| `POST` | `/api/missions/:id/attach` | JWT | Attach an on-chain mission ID to an owned mission |
 | `POST` | `/api/upload` | JWT | Stub |
 | `POST` | `/api/upload/json` | JWT | Stub |
+
+### Draft publishing
+
+After `create_mission` succeeds in Freighter, publish the authenticated user's
+saved draft with `POST /missions/drafts/:draftId/publish`. The body includes the
+chain ID and the mission values needed to enrich the indexed record:
+
+```json
+{
+  "onChainId": "42",
+  "descriptionCid": "bafy...",
+  "metadataCid": "bafy...",
+  "metadata": {},
+  "rewardToken": "C...",
+  "rewardAmount": "100",
+  "maxParticipants": 5
+}
+```
+
+The API takes the owner address from the JWT, rejects a draft owned by someone
+else, and links the draft and mission in one database transaction. The separate
+`POST /missions/:id/attach` endpoint links an existing owned mission. The
+`onChainId` column is unique, and published drafts are excluded from later draft
+edits.
 
 ## Scripts
 
