@@ -21,11 +21,16 @@ pub enum QuidError {
     InsufficientAssetBalance = 16,
     FeeCollectorNotSet = 17,
     StakingPoolNotSet = 18,
+    /// Hunter is banned or muted in the configured moderation registry (#305).
+    HunterBanned = 19,
+    /// No moderation registry has been configured.
+    ModerationRegistryNotSet = 20,
+    AlreadyRejected = 21,
     /// `expires_at` is at or before the current ledger timestamp.
-    ExpiryInThePast = 19,
+    ExpiryInThePast = 22,
     /// The mission's deadline has passed: no new submissions are accepted.
-    MissionExpired = 20,
+    MissionExpired = 23,
     /// `expire_mission` was called before the mission's deadline.
-    MissionNotExpired = 21,
-    ReputationNotSet = 22,
+    MissionNotExpired = 24,
+    ReputationNotSet = 25,
 }

@@ -65,6 +65,8 @@ pub enum DataKey {
     StakingPool,
     /// Optional protocol fee vault (`quid-fee-collector`) charged on mission create.
     FeeCollector,
+    /// Optional `quid-moderation-registry` consulted by `submit_feedback` (#305).
+    ModerationRegistry,
     /// Optional reputation registry (`quid-reputation`) attested on payout.
     ReputationContract,
 }
