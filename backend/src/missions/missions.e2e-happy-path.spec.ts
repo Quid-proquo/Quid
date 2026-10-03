@@ -20,6 +20,7 @@ import {
 } from '@nestjs/common';
 import { SubmissionStatus, MissionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { MissionsService } from './missions.service';
 
 const FOUNDER_ADDRESS =
@@ -64,6 +65,10 @@ const pendingSubmission = {
 
 describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => {
   let service: MissionsService;
+  let notifications: {
+    notifySubmissionPaid: jest.Mock;
+    notifySubmissionRejected: jest.Mock;
+  };
   let prisma: {
     mission: { findMany: jest.Mock; findUnique: jest.Mock };
     submission: {
@@ -92,7 +97,14 @@ describe('E2E Happy Path – Founder → Hunter → Payout (Issue #343)', () => 
         create: jest.fn(),
       },
     };
-    service = new MissionsService(prisma as unknown as PrismaService);
+    notifications = {
+      notifySubmissionPaid: jest.fn().mockResolvedValue(null),
+      notifySubmissionRejected: jest.fn().mockResolvedValue(null),
+    };
+    service = new MissionsService(
+      prisma as unknown as PrismaService,
+      notifications as unknown as NotificationsService,
+    );
   });
 
   // -------------------------------------------------------------------------
