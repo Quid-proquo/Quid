@@ -26,4 +26,11 @@ pub enum QuidError {
     /// No moderation registry has been configured.
     ModerationRegistryNotSet = 20,
     AlreadyRejected = 21,
+    /// `expires_at` is at or before the current ledger timestamp.
+    ExpiryInThePast = 22,
+    /// The mission's deadline has passed: no new submissions are accepted.
+    MissionExpired = 23,
+    /// `expire_mission` was called before the mission's deadline.
+    MissionNotExpired = 24,
+    ReputationNotSet = 25,
 }
