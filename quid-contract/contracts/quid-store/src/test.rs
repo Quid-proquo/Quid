@@ -5,7 +5,8 @@ use crate::types::MissionStatus;
 use soroban_sdk::testutils::Events;
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 use soroban_sdk::{
-    testutils::Address as _, Address, Env, Map as SorobanMap, String, Symbol, TryFromVal, Val,
+    testutils::{Address as _, Ledger as _},
+    Address, Env, Map as SorobanMap, String, Symbol, TryFromVal, Val,
 };
 
 fn setup_test_env() -> (Env, Address, Address, Address) {
@@ -57,6 +58,7 @@ fn test_happy_path_create_submit_payout() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let cid = String::from_str(&env, "QmSubmission");
@@ -99,6 +101,7 @@ fn test_prevent_double_submission() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let cid = String::from_str(&env, "QmFirst");
@@ -133,6 +136,7 @@ fn test_cancel_mission_refund() {
         &reward,
         &slots,
         &min_asset,
+        &None,
     );
 
     let contract_balance = token_client.balance(&contract_id);
@@ -170,6 +174,7 @@ fn test_mission_capacity_limit() {
         &reward,
         &1,
         &min_asset,
+        &None,
     );
 
     let hunter1 = Address::generate(&env);
@@ -211,6 +216,7 @@ fn test_cannot_payout_twice() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -271,6 +277,7 @@ fn test_create_mission_negative_reward() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 }
 
@@ -300,6 +307,7 @@ fn test_submit_feedback_when_paused() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
     client.pause_mission(&mission_id);
     client.submit_feedback(
@@ -337,6 +345,7 @@ fn test_cancel_mission_partial_payouts_refund() {
         &reward,
         &slots,
         &min_asset,
+        &None,
     );
 
     let hunter = Address::generate(&env);
@@ -392,6 +401,7 @@ fn test_payout_without_submission() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
     client.payout_participant(&mission_id, &hunter);
 }
@@ -423,6 +433,7 @@ fn test_stake_deducted_on_submission() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let hunter_balance_before = token_client.balance(&hunter);
@@ -472,6 +483,7 @@ fn test_stake_invalid_amount_zero() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -509,6 +521,7 @@ fn test_stake_invalid_amount_negative() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -545,6 +558,7 @@ fn test_update_submission_success() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let original_cid = String::from_str(&env, "QmOriginal");
@@ -583,6 +597,7 @@ fn test_update_submission_after_payout() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -622,6 +637,7 @@ fn test_update_submission_not_found() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Try to update without submitting first
@@ -654,6 +670,7 @@ fn test_update_submission_mission_not_open() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -694,6 +711,7 @@ fn test_create_mission_with_asset_gating() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let mission = client.get_mission(&mission_id);
@@ -723,6 +741,7 @@ fn test_create_mission_without_asset_gating() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let mission = client.get_mission(&mission_id);
@@ -755,6 +774,7 @@ fn test_create_mission_with_zero_asset_amount() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 }
 
@@ -783,6 +803,7 @@ fn test_create_mission_with_negative_asset_amount() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 }
 
@@ -826,6 +847,7 @@ fn test_full_lifecycle_integration() {
         &reward,
         &max_participants,
         &min_asset,
+        &None,
     );
 
     // Verify mission was created
@@ -948,6 +970,7 @@ fn test_slash_stake_sends_to_treasury() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -996,9 +1019,10 @@ fn test_slash_stake_not_found() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
-    // No submission — stake doesn't exist
+    // No submission ΓÇö stake doesn't exist
     client.slash_hunter_stake(&mission_id, &hunter, &token_address);
 }
 
@@ -1027,6 +1051,7 @@ fn test_slash_stake_treasury_not_set() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -1037,7 +1062,7 @@ fn test_slash_stake_treasury_not_set() {
         &50,
     );
 
-    // Treasury not set — should fail
+    // Treasury not set ΓÇö should fail
     client.slash_hunter_stake(&mission_id, &hunter, &token_address);
 }
 
@@ -1068,6 +1093,7 @@ fn test_slash_stake_removes_storage_key() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -1111,6 +1137,7 @@ fn test_refund_stake_success() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Submit feedback with stake
@@ -1170,6 +1197,7 @@ fn test_refund_stake_no_stake_exists() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Submit without stake by first slashing it
@@ -1228,6 +1256,7 @@ fn test_refund_stake_removes_storage_key() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -1290,6 +1319,7 @@ fn test_refund_stake_correct_amount() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     let hunter_balance_initial = token_client.balance(&hunter);
@@ -1343,6 +1373,7 @@ fn test_refund_stake_multiple_hunters() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Both hunters submit with different stakes
@@ -1409,6 +1440,7 @@ fn test_refund_stake_prevents_double_refund() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     client.submit_feedback(
@@ -1472,6 +1504,7 @@ fn test_asset_gating_insufficient_balance() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Should fail: hunter has 0 balance of gating token
@@ -1521,6 +1554,7 @@ fn test_asset_gating_sufficient_balance() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Should succeed: hunter has exactly the required balance
@@ -1573,6 +1607,7 @@ fn test_asset_gating_more_than_required() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Should succeed: hunter has more than required balance
@@ -1626,6 +1661,7 @@ fn test_asset_gating_just_below_required() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Should fail: hunter has 999 but needs 1000
@@ -1666,6 +1702,7 @@ fn test_no_asset_gating_allows_any_hunter() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Should succeed: no gating requirement
@@ -1721,6 +1758,7 @@ fn test_asset_gating_multiple_hunters_different_balances() {
         &reward,
         &5,
         &min_asset,
+        &None,
     );
 
     // Both hunters should succeed
@@ -1792,6 +1830,7 @@ fn open_mission(
         &reward,
         &max_participants,
         &min_asset,
+        &None,
     )
 }
 
@@ -1920,6 +1959,549 @@ fn test_get_fee_collector_before_configuration() {
 }
 
 // -----------------------------------------------------------------------------
+// Issue #292: slash / treasury authorization audit
+// -----------------------------------------------------------------------------
+
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+
+/// Turn auth mocking back off.
+///
+/// `mock_all_auths()` is convenient for setting a scenario up but it makes
+/// every `require_auth` pass, which is exactly the thing under audit here.
+/// Reinstalling an empty set of authorization entries restores real
+/// enforcement for the call that follows.
+fn stop_mocking_auths(env: &Env) {
+    env.mock_auths(&[]);
+}
+
+/// Authorize `address` for a single call to `fn_name` on `contract`.
+///
+/// `require_auth()` infers its arguments from the enclosing contract
+/// invocation, so `args` has to mirror the arguments of the entrypoint being
+/// authorized.
+fn mock_auth_call(
+    env: &Env,
+    address: &Address,
+    contract: &Address,
+    fn_name: &str,
+    args: soroban_sdk::Vec<soroban_sdk::Val>,
+) {
+    env.mock_auths(&[MockAuth {
+        address,
+        invoke: &MockAuthInvoke {
+            contract,
+            fn_name,
+            args,
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+/// A 5-slot, 100-per-hunter mission opened by `owner`, with `treasury`
+/// installed as the slash destination.
+fn setup_claimed_treasury_mission() -> (Env, Address, Address, Address, u64) {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+
+    (env, contract_id, owner, token_address, mission_id)
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_slash_hunter_stake_requires_the_mission_owner() {
+    let (env, contract_id, _owner, token_address, mission_id) = setup_claimed_treasury_mission();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSpam"),
+        &token_address,
+        &50,
+    );
+
+    // A real, staked, in-flight submission - but nobody signs for the owner,
+    // so a stranger (including the hunter themselves) cannot slash it.
+    stop_mocking_auths(&env);
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_set_treasury_claims_the_slot_under_the_new_treasury_signature() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // The very first claim has to be signed by the treasury being installed:
+    // otherwise anyone could front-run the slot.
+    stop_mocking_auths(&env);
+    client.set_treasury(&Address::generate(&env));
+}
+
+#[test]
+fn test_set_treasury_first_claim_succeeds_with_the_new_treasury_signature() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    mock_auth_call(
+        &env,
+        &treasury,
+        &contract_id,
+        "set_treasury",
+        (&treasury,).into_val(&env),
+    );
+    client.set_treasury(&treasury);
+
+    assert_eq!(client.get_treasury(), treasury);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_set_treasury_rejects_a_stranger_once_the_slot_is_claimed() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    // The attacker signs for itself, but only the *current* treasury may move
+    // the slot, so this must not be honored.
+    let attacker = Address::generate(&env);
+    stop_mocking_auths(&env);
+    client.set_treasury(&attacker);
+}
+
+#[test]
+fn test_treasury_handover_leaves_the_new_address_in_place() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    // The current treasury hands the slot over to a successor.
+    let successor = Address::generate(&env);
+    mock_auth_call(
+        &env,
+        &treasury,
+        &contract_id,
+        "set_treasury",
+        (&successor,).into_val(&env),
+    );
+    client.set_treasury(&successor);
+
+    assert_eq!(client.get_treasury(), successor);
+}
+
+#[test]
+fn test_slash_stake_pays_the_configured_treasury_and_nobody_else() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+    let owner_before = token_client.balance(&owner);
+
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSpam"),
+        &token_address,
+        &50,
+    );
+
+    // Only the mission owner may slash, and the stake lands on the treasury
+    // that the contract has on record - never on the hunter or the owner.
+    mock_auth_call(
+        &env,
+        &owner,
+        &contract_id,
+        "slash_hunter_stake",
+        (&mission_id, &hunter, &token_address).into_val(&env),
+    );
+    client.slash_hunter_stake(&mission_id, &hunter, &token_address);
+
+    assert_eq!(token_client.balance(&treasury), 50);
+    assert_eq!(token_client.balance(&owner), owner_before - 500);
+    assert_eq!(token_client.balance(&hunter), 950);
+}
+
+// -----------------------------------------------------------------------------
+// Issue #290: payout -> quid-reputation attestation
+// -----------------------------------------------------------------------------
+
+use quid_reputation::{QuidReputationContract, QuidReputationContractClient};
+
+/// Deploy a reputation registry, initialize its admin and point the store at it.
+fn setup_reputation_registry<'a>(
+    env: &Env,
+    store_id: &Address,
+) -> (QuidReputationContractClient<'a>, Address) {
+    let reputation_id = env.register(QuidReputationContract, ());
+    let reputation = QuidReputationContractClient::new(env, &reputation_id);
+
+    let admin = Address::generate(env);
+    reputation.initialize(&admin);
+
+    QuidStoreContractClient::new(env, store_id).set_reputation_contract(&reputation_id);
+
+    (reputation, admin)
+}
+
+#[test]
+fn test_get_reputation_contract_before_configuration() {
+    let (env, contract_id, _, _) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    assert_eq!(
+        client.try_get_reputation_contract(),
+        Err(Ok(QuidError::ReputationNotSet))
+    );
+}
+
+#[test]
+fn test_payout_issues_attestation_when_reputation_is_configured() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let (reputation, admin) = setup_reputation_registry(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    let cid = String::from_str(&env, "QmPayoutProof");
+    client.submit_feedback(&mission_id, &hunter, &cid, &token_address, &10);
+    client.payout_participant(&mission_id, &hunter);
+
+    assert_eq!(reputation.get_attestation_count(), 1);
+
+    let attestation = reputation.get_attestation(&1);
+    // The store issues on the hunter's behalf, anchored to the submitted CID.
+    assert_eq!(attestation.id, 1);
+    assert_eq!(attestation.issuer, contract_id);
+    assert_eq!(attestation.subject, hunter);
+    assert_eq!(
+        attestation.attestation_type,
+        String::from_str(&env, "quid-payout")
+    );
+    assert_eq!(attestation.data_cid, cid);
+    assert!(!attestation.revoked);
+    // The store is not the registry's admin - it only needs to be the issuer.
+    assert_eq!(reputation.get_admin(), admin);
+    assert_ne!(reputation.get_admin(), contract_id);
+}
+
+#[test]
+fn test_payout_works_and_issues_nothing_when_reputation_is_unset() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmNoRep"),
+        &token_address,
+        &10,
+    );
+
+    let before = token_client.balance(&hunter);
+    client.payout_participant(&mission_id, &hunter);
+
+    // Unchanged payout: full reward plus the stake refund, no attestation.
+    assert_eq!(token_client.balance(&hunter), before + 100 + 10);
+    assert_eq!(client.get_mission(&mission_id).participants_count, 1);
+}
+
+#[test]
+fn test_every_payout_gets_its_own_attestation() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let (reputation, _admin) = setup_reputation_registry(&env, &contract_id);
+
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &first, 1_000);
+    mint_tokens_for_hunter(&env, &token_address, &second, 1_000);
+
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    for hunter in [first.clone(), second.clone()] {
+        client.submit_feedback(
+            &mission_id,
+            &hunter,
+            &String::from_str(&env, "QmMulti"),
+            &token_address,
+            &10,
+        );
+    }
+    client.payout_participant(&mission_id, &first);
+    client.payout_participant(&mission_id, &second);
+
+    assert_eq!(reputation.get_attestation_count(), 2);
+    assert_eq!(reputation.get_attestation(&1).subject, first);
+    assert_eq!(reputation.get_attestation(&2).subject, second);
+}
+
+#[test]
+fn test_reputation_slot_handover_lets_the_new_registry_take_over() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let first_id = env.register(QuidReputationContract, ());
+    QuidReputationContractClient::new(&env, &first_id).initialize(&Address::generate(&env));
+    let second_id = env.register(QuidReputationContract, ());
+    let second = QuidReputationContractClient::new(&env, &second_id);
+    second.initialize(&Address::generate(&env));
+
+    client.set_reputation_contract(&first_id);
+    client.set_reputation_contract(&second_id);
+    assert_eq!(client.get_reputation_contract(), second_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmHandover"),
+        &token_address,
+        &10,
+    );
+    client.payout_participant(&mission_id, &hunter);
+
+    // Only the registry currently wired up receives the attestation.
+    assert_eq!(second.get_attestation_count(), 1);
+    assert_eq!(
+        QuidReputationContractClient::new(&env, &first_id).get_attestation_count(),
+        0
+    );
+}
+
+// -----------------------------------------------------------------------------
+// Issue #289: mission expiry and escrow refund
+// -----------------------------------------------------------------------------
+
+/// Open a mission whose deadline is `ttl_seconds` away from the current ledger.
+fn open_expiring_mission(
+    env: &Env,
+    client: &QuidStoreContractClient,
+    owner: &Address,
+    token_address: &Address,
+    ttl_seconds: u64,
+) -> u64 {
+    let expires_at = env.ledger().timestamp() + ttl_seconds;
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    client.create_mission(
+        owner,
+        &String::from_str(env, "Expiring Mission"),
+        &String::from_str(env, "QmDesc"),
+        &reward,
+        &5,
+        &min_asset,
+        &Some(expires_at),
+    )
+}
+
+#[test]
+fn test_create_mission_rejects_a_deadline_in_the_past() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let now = env.ledger().timestamp();
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+
+    assert_eq!(
+        client.try_create_mission(
+            &owner,
+            &String::from_str(&env, "Stale"),
+            &String::from_str(&env, "QmDesc"),
+            &reward,
+            &5,
+            &min_asset,
+            &Some(now),
+        ),
+        Err(Ok(QuidError::ExpiryInThePast))
+    );
+}
+
+#[test]
+fn test_mission_without_expiry_never_expires() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
+    assert_eq!(client.get_mission(&mission_id).expires_at, None);
+
+    env.ledger().with_mut(|li| li.timestamp += 10_000_000);
+    assert!(!client.is_mission_expired(&mission_id));
+    assert_eq!(
+        client.try_expire_mission(&mission_id),
+        Err(Ok(QuidError::MissionNotExpired))
+    );
+}
+
+#[test]
+fn test_expire_mission_refunds_the_full_escrow_of_an_untouched_mission() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let owner_before = token_client.balance(&owner);
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+
+    env.ledger().with_mut(|li| li.timestamp += 101);
+    assert!(client.is_mission_expired(&mission_id));
+
+    let refunded = client.expire_mission(&mission_id);
+
+    assert_eq!(refunded, 500);
+    assert_eq!(token_client.balance(&owner), owner_before);
+    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(
+        client.get_mission(&mission_id).status,
+        MissionStatus::Cancelled
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_submission_after_expiry_is_rejected() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+    env.ledger().with_mut(|li| li.timestamp += 101);
+
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmLate"),
+        &token_address,
+        &10,
+    );
+}
+
+#[test]
+fn test_expire_mission_after_partial_payouts_refunds_only_unpaid_slots() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &first, 1_000);
+    mint_tokens_for_hunter(&env, &token_address, &second, 1_000);
+
+    let owner_before = token_client.balance(&owner);
+    // 5 slots x 100 = 500 escrowed.
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+
+    for hunter in [first.clone(), second.clone()] {
+        client.submit_feedback(
+            &mission_id,
+            &hunter,
+            &String::from_str(&env, "QmPartial"),
+            &token_address,
+            &10,
+        );
+    }
+
+    // Two hunters are paid while the mission is still live.
+    client.payout_participant(&mission_id, &first);
+    client.payout_participant(&mission_id, &second);
+    assert_eq!(client.get_mission(&mission_id).participants_count, 2);
+
+    env.ledger().with_mut(|li| li.timestamp += 101);
+
+    // Only the three unpaid slots go back to the founder: 500 escrowed,
+    // 300 refunded, so the owner is out exactly the two rewards paid out.
+    let refunded = client.expire_mission(&mission_id);
+    assert_eq!(refunded, 300);
+    assert_eq!(token_client.balance(&owner), owner_before - 200);
+    assert_eq!(token_client.balance(&contract_id), 0);
+
+    assert_eq!(
+        client.get_mission(&mission_id).status,
+        MissionStatus::Cancelled
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_expire_mission_twice_fails_once_the_mission_is_closed() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+    env.ledger().with_mut(|li| li.timestamp += 101);
+
+    client.expire_mission(&mission_id);
+    client.expire_mission(&mission_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #24)")]
+fn test_expire_mission_before_the_deadline_fails() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+
+    env.ledger().with_mut(|li| li.timestamp += 99);
+    client.expire_mission(&mission_id);
+}
+
+#[test]
+fn test_expiry_boundary_is_inclusive_of_the_deadline_timestamp() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+
+    // One second before the deadline the mission is still open.
+    env.ledger().with_mut(|li| li.timestamp += 99);
+    assert!(!client.is_mission_expired(&mission_id));
+
+    env.ledger().with_mut(|li| li.timestamp += 1);
+    assert!(client.is_mission_expired(&mission_id));
+    assert_eq!(client.expire_mission(&mission_id), 500);
+}
+
+// -----------------------------------------------------------------------------
 // Owner rejection with stake refund
 // -----------------------------------------------------------------------------
 
@@ -1949,6 +2531,7 @@ fn create_pending_mission(
         &reward,
         &max_participants,
         &min_asset,
+        &None,
     )
 }
 

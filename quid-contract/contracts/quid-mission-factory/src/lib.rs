@@ -1,4 +1,8 @@
 #![no_std]
+// The `Store` interface mirrors `quid-store::create_mission`, which takes one
+// argument per mission knob. `#[contractclient]` emits the client method at the
+// same span as the trait, so the allowance has to live at crate level.
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
     contract, contractclient, contractevent, contractimpl, Address, Env, String, Vec,
@@ -27,6 +31,7 @@ pub trait Store {
         reward: Reward,
         max_participants: u32,
         min_asset: MinAsset,
+        expires_at: Option<u64>,
     ) -> u64;
 }
 
@@ -107,6 +112,9 @@ impl QuidMissionFactoryContract {
 
     /// Create and fund a mission in the template's configured `quid-store`.
     /// The owner authorizes the whole call tree, including token escrow.
+    ///
+    /// Templates are intentionally timeless, so missions launched this way
+    /// carry no deadline — the owner can close them with `cancel_mission`.
     pub fn create_from_template(
         env: Env,
         template_id: u64,
@@ -122,6 +130,7 @@ impl QuidMissionFactoryContract {
             &template.reward,
             &template.max_participants,
             &template.min_asset,
+            &None,
         );
 
         MissionFromTemplateEvent {

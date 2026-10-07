@@ -1,5 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { MissionsController } from './missions.controller';
 import { MissionsService } from './missions.service';
 import {
@@ -16,6 +16,7 @@ describe('MissionsController', () => {
     listPublicMissions: jest.Mock;
     getMissionSubmissions: jest.Mock;
     getMission: jest.Mock;
+    getMissionByOnChainId: jest.Mock;
     approveSubmission: jest.Mock;
     rejectSubmission: jest.Mock;
     saveDraft: jest.Mock;
@@ -30,6 +31,7 @@ describe('MissionsController', () => {
 
       getMissionSubmissions: jest.fn(),
       getMission: jest.fn(),
+      getMissionByOnChainId: jest.fn(),
       approveSubmission: jest.fn(),
       rejectSubmission: jest.fn(),
       saveDraft: jest.fn(),
@@ -136,6 +138,34 @@ describe('MissionsController', () => {
 
     await expect(controller.detail('mission-1')).resolves.toEqual(mockMission);
     expect(missionsService.getMission).toHaveBeenCalledWith('mission-1');
+  });
+
+  it('resolves a mission by on-chain id without requiring authentication', async () => {
+    const mockMission = { id: 'mission-1', onChainId: 'CONTRACT_1' };
+    missionsService.getMissionByOnChainId.mockResolvedValue(mockMission);
+
+    await expect(controller.detailByOnChainId('CONTRACT_1')).resolves.toEqual(
+      mockMission,
+    );
+    expect(missionsService.getMissionByOnChainId).toHaveBeenCalledWith(
+      'CONTRACT_1',
+    );
+  });
+
+  it('declares the on-chain route before the :id route so it is not shadowed', () => {
+    const paths = Object.getOwnPropertyNames(MissionsController.prototype)
+      .filter((name) => name !== 'constructor')
+      .map((name) => {
+        // Reading decorator metadata requires the original prototype method.
+        const handler = MissionsController.prototype[name];
+        return String(Reflect.getMetadata(PATH_METADATA, handler) ?? '');
+      });
+
+    const onChainIndex = paths.findIndex((p) => p === 'on-chain/:onChainId');
+    const idIndex = paths.findIndex((p) => p === ':id');
+
+    expect(onChainIndex).toBeGreaterThanOrEqual(0);
+    expect(onChainIndex).toBeLessThan(idIndex);
   });
 
   it('delegates saveDraft to the service with the authenticated user address and dto', async () => {
