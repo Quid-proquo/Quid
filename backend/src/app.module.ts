@@ -6,6 +6,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { HunterModule } from './hunter/hunter.module';
 import { MissionsModule } from './missions/missions.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UploadModule } from './upload/upload.module';
@@ -35,6 +36,8 @@ import { NotificationsModule } from './notifications/notifications.module';
     // onboarding role choice is stored against the Prisma user.
     UsersModule,
     MissionsModule,
+    // Issue #327: hunter-facing submissions list (GET /hunter/my-submissions).
+    HunterModule,
     UploadModule,
     // Issue #314: the indexer queues hunter alerts on payout and reject, so
     // this has to be imported before IndexerModule resolves its dependency.

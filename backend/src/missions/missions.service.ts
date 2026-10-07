@@ -97,6 +97,26 @@ export class MissionsService {
     return mission;
   }
 
+  /**
+   * Resolve an off-chain mission from its on-chain `quid-store` contract id.
+   * This is the join key the indexer and the post-`create_mission` client flow
+   * use to attach a published mission to its draft row.
+   */
+  async getMissionByOnChainId(onChainId: string): Promise<unknown> {
+    const mission = await this.prisma.mission.findUnique({
+      where: { onChainId },
+      include: missionDetailInclude,
+    });
+
+    if (!mission) {
+      throw new NotFoundException(
+        `No mission found for on-chain id ${onChainId}`,
+      );
+    }
+
+    return mission;
+  }
+
   async saveDraft(
     ownerAddress: string,
     dto: SaveDraftDto,

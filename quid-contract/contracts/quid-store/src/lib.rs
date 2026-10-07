@@ -1,4 +1,9 @@
 #![no_std]
+// `create_mission` takes one argument per mission knob (title, description,
+// reward, capacity, asset gate, deadline). The `#[contractimpl]` macro emits the
+// matching client and trait methods at the same span, so the allowance has to
+// live at crate level to cover them.
+#![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contractevent, contractimpl, contracttype, vec, Address, Env,
@@ -11,6 +16,9 @@ mod types;
 use error::QuidError;
 use soroban_sdk::token;
 use types::{DataKey, Mission, MissionStatus, Submission, SubmissionStatus};
+
+/// `attestation_type` written on the reputation record a payout produces.
+const PAYOUT_ATTESTATION_TYPE: &str = "quid-payout";
 
 #[contractevent(topics = ["mission", "create"])]
 pub struct MissionCreateEvent {
@@ -66,6 +74,18 @@ pub struct MissionPauseEvent {
     pub mission_id: u64,
 }
 
+#[contractevent(topics = ["mission", "expired"])]
+pub struct MissionExpiredEvent {
+    pub mission_id: u64,
+    pub refunded: i128,
+}
+
+#[contractevent(topics = ["payout", "attested"])]
+pub struct PayoutAttestedEvent {
+    pub mission_id: u64,
+    pub attestation_id: u64,
+}
+
 #[contractevent(topics = ["fee", "charged"])]
 pub struct FeeChargedEvent {
     pub mission_id: u64,
@@ -114,6 +134,22 @@ pub trait StakingPool {
     );
 }
 
+/// Subset of `quid-reputation` the store calls after a successful payout.
+///
+/// Declared as a client interface, like the fee collector above, so the store
+/// wasm does not embed the reputation contract's code. The store is the
+/// `issuer` of the attestation it issues on the hunter's behalf.
+#[contractclient(name = "ReputationRegistryClient")]
+pub trait ReputationRegistry {
+    fn issue_attestation(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        attestation_type: String,
+        data_cid: String,
+    ) -> u64;
+}
+
 /// Subset of `quid-moderation-registry` the store reads (#305).
 ///
 /// Declared as a client interface so the store wasm stays free of the
@@ -130,6 +166,11 @@ pub struct QuidStoreContract;
 #[contractimpl]
 impl QuidStoreContract {
     /// Create mission
+    ///
+    /// `expires_at` is an optional unix timestamp. Once the ledger passes it the
+    /// mission stops accepting submissions and anyone may call `expire_mission`
+    /// to return the unspent escrow to the owner. `None` means "no deadline",
+    /// which keeps the pre-expiry behaviour for callers that do not care.
     pub fn create_mission(
         env: Env,
         owner: Address,
@@ -138,10 +179,14 @@ impl QuidStoreContract {
         reward: Reward,
         max_participants: u32,
         min_asset: MinAsset,
+        expires_at: Option<u64>,
     ) -> Result<u64, QuidError> {
         owner.require_auth();
 
         Self::validate_mission_params(&title, reward.reward_amount)?;
+
+        let created_at = env.ledger().timestamp();
+        Self::validate_expiry(expires_at, created_at)?;
 
         // Validate optional asset gating
         if min_asset.min_asset_token.is_some() && min_asset.min_asset_amount <= 0 {
@@ -165,8 +210,6 @@ impl QuidStoreContract {
 
         let mission_id = Self::get_next_mission_id(&env);
 
-        let created_at = env.ledger().timestamp();
-
         // let reward = Reward {
         //     reward_token,
         //     reward_amount
@@ -185,6 +228,7 @@ impl QuidStoreContract {
             created_at,
             min_asset: min_asset.min_asset_token,
             min_asset_amount: min_asset.min_asset_amount,
+            expires_at,
         };
 
         env.storage()
@@ -264,6 +308,10 @@ impl QuidStoreContract {
 
         let mission = Self::get_mission(env.clone(), mission_id)?;
 
+        if Self::is_expired(&mission, env.ledger().timestamp()) {
+            return Err(QuidError::MissionExpired);
+        }
+
         if mission.status != MissionStatus::Open && mission.status != MissionStatus::Started {
             return Err(QuidError::MissionNotOpen);
         }
@@ -341,6 +389,10 @@ impl QuidStoreContract {
         hunter.require_auth();
 
         let mission = Self::get_mission(env.clone(), mission_id)?;
+
+        if Self::is_expired(&mission, env.ledger().timestamp()) {
+            return Err(QuidError::MissionExpired);
+        }
 
         if mission.status != MissionStatus::Open {
             return Err(QuidError::MissionNotOpen);
@@ -431,7 +483,15 @@ impl QuidStoreContract {
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
 
-        PayoutDoneEvent { mission_id, hunter }.publish(&env);
+        PayoutDoneEvent {
+            mission_id,
+            hunter: hunter.clone(),
+        }
+        .publish(&env);
+
+        // Reputation is opt-in: a store with no registry configured pays out
+        // exactly as before, so wiring this up is non-breaking.
+        Self::attest_payout(&env, mission_id, &hunter, &submission.ipfs_cid)?;
 
         Ok(())
     }
@@ -526,6 +586,66 @@ impl QuidStoreContract {
         Ok(())
     }
 
+    /// Reclaim the escrow of a mission whose deadline has passed.
+    ///
+    /// Deliberately permissionless: once the ledger timestamp reaches
+    /// `expires_at` the deadline is public state, so requiring the owner's
+    /// signature would only give a departed founder a way to keep escrowed
+    /// funds locked. Anyone may call it, and it is safe to call twice — the
+    /// second attempt hits the closed-mission check.
+    pub fn expire_mission(env: Env, mission_id: u64) -> Result<i128, QuidError> {
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+
+        if matches!(
+            mission.status,
+            MissionStatus::Cancelled | MissionStatus::Completed
+        ) {
+            return Err(QuidError::MissionClosed);
+        }
+
+        let now = env.ledger().timestamp();
+        if !Self::is_expired(&mission, now) {
+            return Err(QuidError::MissionNotExpired);
+        }
+
+        // Slots already paid out keep their reward; everything still escrowed
+        // goes back to the founder.
+        let remaining_slots = mission
+            .max_participants
+            .saturating_sub(mission.participants_count);
+        let refund_amount: i128 = (remaining_slots as i128)
+            .checked_mul(mission.reward_amount)
+            .ok_or(QuidError::NegativeReward)?;
+
+        if refund_amount > 0 {
+            let token_client = token::Client::new(&env, &mission.reward_token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &mission.owner,
+                &refund_amount,
+            );
+        }
+
+        mission.status = MissionStatus::Cancelled;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+
+        MissionExpiredEvent {
+            mission_id,
+            refunded: refund_amount,
+        }
+        .publish(&env);
+
+        Ok(refund_amount)
+    }
+
+    /// Whether the deadline (if any) has already passed for this mission.
+    pub fn is_mission_expired(env: Env, mission_id: u64) -> Result<bool, QuidError> {
+        let mission = Self::get_mission(env.clone(), mission_id)?;
+        Ok(Self::is_expired(&mission, env.ledger().timestamp()))
+    }
+
     pub fn pause_mission(env: Env, id: u64) -> Result<(), QuidError> {
         let mut mission = Self::get_mission(env.clone(), id)?;
         mission.owner.require_auth();
@@ -600,6 +720,22 @@ impl QuidStoreContract {
             return Err(QuidError::NegativeReward);
         }
         Ok(())
+    }
+
+    /// A deadline in the past would create a mission that can never be
+    /// submitted to and is immediately refundable, so reject it at creation.
+    fn validate_expiry(expires_at: Option<u64>, now: u64) -> Result<(), QuidError> {
+        if let Some(deadline) = expires_at {
+            if deadline <= now {
+                return Err(QuidError::ExpiryInThePast);
+            }
+        }
+        Ok(())
+    }
+
+    /// `expires_at: None` never expires.
+    fn is_expired(mission: &Mission, now: u64) -> bool {
+        matches!(mission.expires_at, Some(deadline) if now >= deadline)
     }
 
     fn get_next_mission_id(env: &Env) -> u64 {
@@ -687,6 +823,89 @@ impl QuidStoreContract {
             .instance()
             .get(&DataKey::FeeCollector)
             .ok_or(QuidError::FeeCollectorNotSet)
+    }
+
+    /// Point the store at a `quid-reputation` registry so a settled payout
+    /// issues a `quid-payout` attestation for the hunter.
+    ///
+    /// Same handover rule as `set_treasury` / `set_fee_collector`: the first
+    /// caller to claim the slot must authorize as the new registry, and after
+    /// that only the current registry can move it.
+    pub fn set_reputation_contract(env: Env, new_reputation: Address) {
+        if let Some(current) = Self::reputation_contract(&env) {
+            current.require_auth();
+        } else {
+            new_reputation.require_auth();
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::ReputationContract, &new_reputation);
+    }
+
+    /// Get the configured reputation registry.
+    pub fn get_reputation_contract(env: Env) -> Result<Address, QuidError> {
+        Self::reputation_contract(&env).ok_or(QuidError::ReputationNotSet)
+    }
+
+    fn reputation_contract(env: &Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::ReputationContract)
+    }
+
+    /// Issue a payout attestation for `hunter` against `data_cid`.
+    ///
+    /// No-op when no registry is configured — that is the whole point of the
+    /// wiring being opt-in.
+    fn attest_payout(
+        env: &Env,
+        mission_id: u64,
+        hunter: &Address,
+        data_cid: &String,
+    ) -> Result<(), QuidError> {
+        let Some(reputation) = Self::reputation_contract(env) else {
+            return Ok(());
+        };
+
+        let store = env.current_contract_address();
+        let attestation_type = String::from_str(env, PAYOUT_ATTESTATION_TYPE);
+        let subject = hunter.clone();
+        let payload = data_cid.clone();
+
+        // The registry asks the *issuer* (this store) to authorize the call,
+        // and a contract's implicit auth only covers its own direct sub-call,
+        // so pre-authorize the nested invocation explicitly.
+        env.authorize_as_current_contract(vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: reputation.clone(),
+                    fn_name: Symbol::new(env, "issue_attestation"),
+                    args: (
+                        store.clone(),
+                        subject.clone(),
+                        attestation_type.clone(),
+                        payload.clone(),
+                    )
+                        .into_val(env),
+                },
+                sub_invocations: vec![env],
+            }),
+        ]);
+
+        let attestation_id = ReputationRegistryClient::new(env, &reputation).issue_attestation(
+            &store,
+            &subject,
+            &attestation_type,
+            &payload,
+        );
+
+        PayoutAttestedEvent {
+            mission_id,
+            attestation_id,
+        }
+        .publish(env);
+
+        Ok(())
     }
 
     /// Protocol fee owed on `gross_amount`, or zero when no vault is configured.

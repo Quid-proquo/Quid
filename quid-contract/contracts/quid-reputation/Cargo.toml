@@ -8,7 +8,9 @@ publish = false
 
 [lib]
 
-crate-type = ["cdylib"]
+# "lib" as well as "cdylib" so sibling contracts (and their tests) can depend on
+# this crate the way they already depend on quid-fee-collector / quid-staking.
+crate-type = ["lib", "cdylib"]
 
 
 [dependencies]

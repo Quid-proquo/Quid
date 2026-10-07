@@ -37,6 +37,12 @@ pub struct Mission {
     pub created_at: u64,
     pub min_asset: Option<Address>,
     pub min_asset_amount: i128,
+    /// Unix timestamp after which no new submission is accepted and the
+    /// unused escrow can be reclaimed through `expire_mission`.
+    ///
+    /// `None` means the mission never expires, which is what every mission
+    /// created before this field existed behaves like.
+    pub expires_at: Option<u64>,
 }
 
 #[contracttype]
@@ -61,4 +67,6 @@ pub enum DataKey {
     FeeCollector,
     /// Optional `quid-moderation-registry` consulted by `submit_feedback` (#305).
     ModerationRegistry,
+    /// Optional reputation registry (`quid-reputation`) attested on payout.
+    ReputationContract,
 }
