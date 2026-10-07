@@ -8,6 +8,7 @@ import { PendingBadge } from "@/components/ui/PendingBadge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { usePendingTx } from "@/app/hooks/usePendingTx";
 import { useWallet } from "@/context/WalletProvider";
+import { getApiBaseUrl } from "@/lib/api-base";
 import type { SubmissionReceipt } from "@/lib/soroban-client";
 
 type QuestStatus = "Submitted" | "Reviewing" | "Open";
@@ -144,7 +145,9 @@ const initialQuestsByTab: Record<QuestTab, Quest[]> = {
 
 const QUESTS_PER_PAGE = 5;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+// Issue #324: use the shared resolver. It appends `/api` (unlike the raw env
+// var, which points at the backend origin and would 404 against the prefix).
+const API_URL = getApiBaseUrl();
 
 export default function HunterQuestTabs() {
   const [activeTab, setActiveTab] = useState<QuestTab>("for-you");
