@@ -10,11 +10,20 @@ export default function SubmissionCard({
   onApprove,
   onReject,
   isApproved,
+  isPaying = false,
+  approveDisabled = false,
+  approveDisabledReason,
 }: {
   submission: Submission;
   onApprove: () => void;
   onReject?: () => void;
   isApproved?: boolean;
+  /** True while the payout transaction is in flight. */
+  isPaying?: boolean;
+  /** Blocks the approve CTA — wrong network, or not the quest founder. */
+  approveDisabled?: boolean;
+  /** Shown as the disabled button's tooltip. */
+  approveDisabledReason?: string;
 }) {
   const [selectWinner, setSelectWinner] = useState<Record<string, boolean>>({});
   const isWinnerSelected = selectWinner[submission.id] || isApproved;
@@ -95,15 +104,17 @@ export default function SubmissionCard({
                 <>
                   <button
                     onClick={onApprove}
-                    className="brutal-border brutal-shadow bg-brutal-pink hover:translate-x-[-1px] hover:translate-y-[-1px] text-foreground px-3 py-1  text-sm font-medium transition-colors"
-                    title="Approve submission"
+                    disabled={approveDisabled || isPaying}
+                    className="brutal-border brutal-shadow bg-brutal-pink hover:translate-x-[-1px] hover:translate-y-[-1px] text-foreground px-3 py-1  text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-x-0 disabled:hover:translate-y-0"
+                    title={approveDisabled ? approveDisabledReason : "Approve submission"}
                   >
-                    ✓ Approve
+                    {isPaying ? "Paying…" : "✓ Approve"}
                   </button>
                   {onReject && (
                     <button
                       onClick={onReject}
-                      className="border border-red-500/50 text-red-400 hover:bg-red-500/10 px-3 py-1  text-sm font-medium transition-colors"
+                      disabled={isPaying}
+                      className="border border-red-500/50 text-red-400 hover:bg-red-500/10 px-3 py-1  text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                       title="Reject submission"
                     >
                       ✕ Reject

@@ -8,12 +8,21 @@ import { Check } from 'lucide-react';
 import type { SupportedWallet } from '@/context/WalletProvider';
 import { useWallet } from '@/context/WalletProvider';
 import { ONBOARDING_ROUTES } from '@/lib/onboarding';
+import NetworkMismatchBanner from '@/components/wallet/NetworkMismatchBanner';
+import { describeNetwork } from '@/lib/freighter-wallet';
 import QuidLogo from '@/components/brand/QuidLogo';
 import { brutalBtnPrimary } from '@/lib/brutalist-classes';
 
 export default function ConnectWalletPage() {
-  const { connect, connected, publicKey, walletName, getAvailableWallets } =
-    useWallet();
+  const {
+    connect,
+    connected,
+    publicKey,
+    walletName,
+    getAvailableWallets,
+    isNetworkMismatch,
+    expectedNetwork,
+  } = useWallet();
   const [availableWallets, setAvailableWallets] = useState<SupportedWallet[]>([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const router = useRouter();
@@ -69,6 +78,8 @@ export default function ConnectWalletPage() {
             </p>
           )}
         </div>
+
+        <NetworkMismatchBanner />
 
         <div className="brutal-border brutal-shadow-lg w-full bg-card p-4">
           <div className="flex flex-col gap-3">
@@ -131,10 +142,18 @@ export default function ConnectWalletPage() {
         {connected && (
           <button
             type="button"
+            disabled={isNetworkMismatch}
             onClick={() => router.push(ONBOARDING_ROUTES.accountType)}
-            className={brutalBtnPrimary}
+            className={`${brutalBtnPrimary} disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0_0_#0a0a0a]`}
+            title={
+              isNetworkMismatch
+                ? `Switch your wallet to ${describeNetwork(expectedNetwork)} to continue`
+                : undefined
+            }
           >
-            Continue to account selection
+            {isNetworkMismatch
+              ? 'Wrong network — switch to continue'
+              : 'Continue to account selection'}
           </button>
         )}
       </div>
