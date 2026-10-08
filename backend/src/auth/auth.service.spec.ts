@@ -161,4 +161,128 @@ describe('AuthService - verifySignedPayload', () => {
       UnauthorizedException,
     );
   });
+
+  it('throws UnauthorizedException when a different client signed the challenge', async () => {
+    const networkPassphrase = 'Test SDF Network ; September 2015';
+    const challenge = WebAuth.buildChallengeTx(
+      SERVER_KEYPAIR,
+      CLIENT_KEYPAIR.publicKey(),
+      'localhost',
+      300,
+      networkPassphrase,
+      'localhost',
+    );
+    const { tx } = WebAuth.readChallengeTx(
+      challenge,
+      SERVER_KEYPAIR.publicKey(),
+      networkPassphrase,
+      'localhost',
+      'localhost',
+    );
+
+    // The challenge was issued for CLIENT_KEYPAIR but signed by a stranger.
+    const stranger = Keypair.random();
+    tx.sign(stranger);
+    const signedXdr = tx.toXDR();
+
+    await expect(service.verifySignedPayload(signedXdr)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(mockPrismaService.user.upsert).not.toHaveBeenCalled();
+  });
+
+  it('throws UnauthorizedException when the challenge home domain does not match', async () => {
+    const networkPassphrase = 'Test SDF Network ; September 2015';
+    // Challenge claims a domain the verifier does not serve.
+    const challenge = WebAuth.buildChallengeTx(
+      SERVER_KEYPAIR,
+      CLIENT_KEYPAIR.publicKey(),
+      'evil.example',
+      300,
+      networkPassphrase,
+      'localhost',
+    );
+    const { tx } = WebAuth.readChallengeTx(
+      challenge,
+      SERVER_KEYPAIR.publicKey(),
+      networkPassphrase,
+      'evil.example',
+      'localhost',
+    );
+    tx.sign(CLIENT_KEYPAIR);
+
+    await expect(service.verifySignedPayload(tx.toXDR())).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('throws UnauthorizedException when the webAuth domain does not match', async () => {
+    const networkPassphrase = 'Test SDF Network ; September 2015';
+    const challenge = WebAuth.buildChallengeTx(
+      SERVER_KEYPAIR,
+      CLIENT_KEYPAIR.publicKey(),
+      'localhost',
+      300,
+      networkPassphrase,
+      'evil.example',
+    );
+    const { tx } = WebAuth.readChallengeTx(
+      challenge,
+      SERVER_KEYPAIR.publicKey(),
+      networkPassphrase,
+      'localhost',
+      'evil.example',
+    );
+    tx.sign(CLIENT_KEYPAIR);
+
+    await expect(service.verifySignedPayload(tx.toXDR())).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('throws UnauthorizedException when verified against a different server account', async () => {
+    const networkPassphrase = 'Test SDF Network ; September 2015';
+    const challenge = WebAuth.buildChallengeTx(
+      SERVER_KEYPAIR,
+      CLIENT_KEYPAIR.publicKey(),
+      'localhost',
+      300,
+      networkPassphrase,
+      'localhost',
+    );
+    const { tx } = WebAuth.readChallengeTx(
+      challenge,
+      SERVER_KEYPAIR.publicKey(),
+      networkPassphrase,
+      'localhost',
+      'localhost',
+    );
+    tx.sign(CLIENT_KEYPAIR);
+
+    // Re-verify the same proof against a *different* server keypair, as if it
+    // were being replayed on another instance.
+    const otherServerSecret = Keypair.random().secret();
+    const otherModule: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: PrismaService, useValue: mockPrismaService },
+        {
+          provide: ConfigService,
+          useValue: {
+            ...mockConfigService,
+            getOrThrow: (key: string) => {
+              if (key === 'STELLAR_SERVER_SECRET') return otherServerSecret;
+              return mockConfigService.getOrThrow(key);
+            },
+          },
+        },
+        { provide: JwtService, useValue: mockJwtService },
+      ],
+    }).compile();
+    const otherService = otherModule.get<AuthService>(AuthService);
+
+    await expect(otherService.verifySignedPayload(tx.toXDR())).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
 });

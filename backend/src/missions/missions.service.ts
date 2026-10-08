@@ -59,9 +59,9 @@ export class MissionsService {
   ) {}
 
   async listPublicMissions(query: ListMissionsQueryDto): Promise<unknown> {
-    const normalizedStatus = query.status?.toUpperCase() as
-      MissionStatus | undefined;
-    const where = normalizedStatus ? { status: normalizedStatus } : {};
+    // `status` is enum-validated at the DTO boundary (issued #313), so it can
+    // be passed to Prisma directly.
+    const where = query.status ? { status: query.status as MissionStatus } : {};
     const orderBy = {
       createdAt: query.sort === MissionListSort.OLDEST ? 'asc' : 'desc',
     } as const;

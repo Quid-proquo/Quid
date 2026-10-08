@@ -1033,6 +1033,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "quid-oracle-bridge"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "quid-quest-bundle"
 version = "0.0.0"
 dependencies = [
