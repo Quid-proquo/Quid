@@ -13,7 +13,7 @@
 export type QuidErrorCode =
   | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
   | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20
-  | 21 | 22 | 23 | 24 | 25;
+  | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28;
 
 export interface QuidErrorInfo {
   /** Short label shown in toasts / inline banners */
@@ -174,6 +174,24 @@ export const QUID_ERROR_MAP: Record<QuidErrorCode, QuidErrorInfo> = {
   25: {
     title: 'Contract configuration error',
     description: 'The reputation registry address has not been configured. Contact the Quid team.',
+    retryable: false,
+  },
+  /** NotInitialized = 26 — issue #393 */
+  26: {
+    title: 'Contract configuration error',
+    description: 'The store has not been initialized with an admin yet. Contact the Quid team.',
+    retryable: false,
+  },
+  /** AlreadyInitialized = 27 — issue #393 */
+  27: {
+    title: 'Contract already initialized',
+    description: 'The store already has an admin, so it cannot be initialized again.',
+    retryable: false,
+  },
+  /** Unauthorized = 28 — issue #393 */
+  28: {
+    title: 'Not authorized',
+    description: 'Only the store admin can change the contract configuration.',
     retryable: false,
   },
 };

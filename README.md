@@ -86,9 +86,11 @@ the detailed section below; contract-specific variants live in
 - [ ] **3. Build contracts** — `stellar contract build` (produces the `*.wasm` files).
 - [ ] **4. Deploy the three core contracts** — `quid-store`, `quid-reputation`,
       `quid-milestone-escrow`. Keep the printed `C...` IDs; you need them twice.
-- [ ] **5. Initialize reputation** — one-time `initialize --admin <deployer>` call
-      against `quid-reputation`. Skipping this leaves reputation read-only
-      (`get_admin` reverts) and is the most common first-deploy failure.
+- [ ] **5. Initialize the store and reputation** — one-time `initialize --admin
+      <deployer>` call against **`quid-store`** (right after deploying it, before
+      wiring anything: it gates every `set_*` config call) and against
+      `quid-reputation`. Skipping reputation leaves it read-only (`get_admin`
+      reverts) and is the most common first-deploy failure.
 - [ ] **6. Configure the backend** — `backend/.env` from `backend/.env.example`:
       `DATABASE_URL`, `PORT`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`,
       `STELLAR_SERVER_SECRET`, `HOME_DOMAIN`, `WEB_AUTH_DOMAIN`,

@@ -135,7 +135,7 @@ Copy the ids into `frontend/.env.example` to point a local frontend at them.
 | Contract | Testnet contract id | State |
 |----------|---------------------|-------|
 | `quid-reputation` | `CDXKNUE2ZNZRZLJI5BK6M2KBMLXLAY4ITWTZG6G3BZP2O2AMQKHRCEWC` | Deployed and initialized; `get_admin` verified |
-| `quid-store` | `CAZL6GNSP42AOON45F6E55PUDNRS3RWOG6BCHKBTO4NWAWGOBIBPPYI7` | Deployed (issue #321); no `initialize` entrypoint, so nothing to configure. `get_mission_count` verified (returns `0`) |
+| `quid-store` | `CAZL6GNSP42AOON45F6E55PUDNRS3RWOG6BCHKBTO4NWAWGOBIBPPYI7` | Deployed (issue #321) **before the admin existed**: this build has no `initialize`, and its `set_*` entrypoints are still first-caller-wins. Redeploy to get the admin-gated build (see [Initialize the store](#initialize-the-store-once-right-after-deploy)). `get_mission_count` verified (returns `0`) |
 | `quid-milestone-escrow` | `CBQPWWJXPA4Y5ONQOCNXTFLGU7NMM34YSA3JKIGUQY2TFHQ453E5Z2SV` | Deployed and initialized (issue #284); `get_admin` and `get_program_count` verified |
 
 `quid-reputation` was initialized with the deploying account as the initial
@@ -174,8 +174,9 @@ throwaway Friendbot identity (same pattern as `quid-reputation`, different
 keypair) — **do not use either for anything that needs a trusted admin or
 real funds.** Redeploy with your own identity for real use, following the
 same `stellar contract deploy` pattern as `quid-reputation`; for
-`quid-milestone-escrow`, also re-run `initialize --admin <YOUR_PUBLIC_KEY>`
-against the new id.
+`quid-milestone-escrow` and `quid-store`, also run `initialize --admin
+<YOUR_PUBLIC_KEY>` against the new id (for the store, before anything else, so
+nobody can claim the admin slot first).
 
 The remaining contracts in this workspace (`quid-referral`, `quid-dispute`,
 `quid-badge-nft`, `quid-fee-collector`, `quid-mission-factory`) have not been
@@ -226,6 +227,45 @@ stellar contract deploy \
 ```
 
 Copy each `C...` contract ID into `frontend/.env.local`.
+
+### Initialize the store (once, right after deploy)
+
+`quid-store` configures its linked contracts (`set_treasury`, `set_staking_pool`,
+`set_fee_collector`, `set_moderation_registry`, `set_reputation_contract`)
+through a single admin. **Run this immediately after deploying the store and
+before wiring anything**: until it runs, every `set_*` call fails with
+`NotInitialized`, and whoever calls `initialize` first becomes the admin.
+
+```bash
+stellar contract invoke \
+  --id <STORE_CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- \
+  initialize \
+  --admin alice
+```
+
+`initialize` needs the new admin's signature, so `--source` must be the admin
+key. A second call fails with `AlreadyInitialized` (error `#27`) and leaves the
+admin alone. Verify:
+
+```bash
+stellar contract invoke \
+  --id <STORE_CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  --send=no \
+  -- \
+  get_admin
+```
+
+Mission entrypoints (`create_mission`, `submit_feedback`, `payout_participant`,
+...) do not need an admin and keep working before this step; only the `set_*`
+config entrypoints do. For the deploy order: **store deployed → store
+`initialize` → (optional) `set_treasury`, `set_fee_collector`,
+`set_reputation_contract`, `set_staking_pool`, `set_moderation_registry`**, each
+signed by the admin.
 
 ### Initialize reputation (once)
 
@@ -299,6 +339,9 @@ stellar contract invoke \
   --new_collector <FEE_COLLECTOR_CONTRACT_ID>
 ```
 
+`set_fee_collector` is admin-gated: `--source` must be the store admin set by
+`initialize` above.
+
 ## Main entrypoints
 
 ### `quid-store`
@@ -310,8 +353,33 @@ stellar contract invoke \
   submission `Rejected` without consuming a payout slot (issue #321)
 - `cancel_mission` / `pause_mission` / `update_mission_status`
 - `slash_hunter_stake` / treasury helpers
-- `set_fee_collector` / `get_fee_collector` — route the protocol fee to `quid-fee-collector`
-- `set_moderation_registry` / `get_moderation_registry` — reject banned/muted hunters in `submit_feedback` via `quid-moderation-registry`
+- `initialize` / `get_admin` — one-time admin setup; the admin gates every `set_*` below
+- `set_treasury` / `set_staking_pool` / `set_reputation_contract` — admin only
+- `set_fee_collector` / `get_fee_collector` — admin only; route the protocol fee to `quid-fee-collector`
+- `set_moderation_registry` / `get_moderation_registry` — admin only; reject banned/muted hunters in `submit_feedback` via `quid-moderation-registry`
+
+#### `quid-store` config storage
+
+Config lives in **instance storage** (small singleton values). Every admin call
+(`initialize` and each `set_*`) extends the instance TTL to about 60 days, so an
+idle deployment does not lose its admin to archival. Mission, submission and
+stake records are **persistent** entries and each call that writes one extends
+its TTL.
+
+| `DataKey` | Storage | Written by | Meaning |
+|-----------|---------|------------|---------|
+| `Admin` | instance | `initialize` (once) | Address that may call every `set_*` entrypoint |
+| `Treasury` | instance | `set_treasury` | Slash destination |
+| `StakingPool` | instance | `set_staking_pool` | Optional reusable hunter stake pool |
+| `FeeCollector` | instance | `set_fee_collector` | Optional protocol fee vault |
+| `ModerationRegistry` | instance | `set_moderation_registry` | Optional ban/mute registry |
+| `ReputationContract` | instance | `set_reputation_contract` | Optional reputation registry |
+| `MissionCount` | instance | `create_mission` | Mission id counter |
+| `Mission(id)`, `Submission(id, hunter)`, `HunterStake(id, hunter)` | persistent | mission lifecycle | Per-record state, TTL extended on write |
+
+New error codes are appended after the existing ones, so the numbers
+`frontend/src/lib/errorMap.ts` keys on do not change: `26 NotInitialized`,
+`27 AlreadyInitialized`, `28 Unauthorized` (reserved).
 
 #### Event catalog and schema stability
 

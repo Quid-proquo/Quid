@@ -24,13 +24,17 @@ Closes [#289](https://github.com/Quid-proquo/Quid/issues/289),
 | `pause_mission(mission_id)` | mission `owner` | Pause submissions |
 | `update_mission_status(mission_id, new_status)` | mission `owner` | Set the status directly |
 | `slash_hunter_stake(mission_id, hunter, stake_token)` | mission `owner` | Confiscate a stake for spam |
-| `set_treasury(new_treasury)` | current treasury, or the new one on first claim | Slash destination |
+| `initialize(admin)` | `admin` | One-time: record the admin that configures everything below. Second call fails with `AlreadyInitialized` |
+| `get_admin()` | — | The admin (`NotInitialized` before `initialize`) |
+| `set_treasury(new_treasury)` | admin | Slash destination |
 | `get_treasury()` | — | Current slash destination |
-| `set_fee_collector(new_collector)` | current collector, or the new one on first claim | Protocol fee vault |
+| `set_fee_collector(new_collector)` | admin | Protocol fee vault |
 | `get_fee_collector()` | — | Current fee vault |
-| `set_staking_pool(new_pool)` | current pool, or the new one on first claim | External staking vault |
+| `set_staking_pool(new_pool)` | admin | External staking vault |
 | `get_staking_pool()` | — | Current staking vault |
-| `set_reputation_contract(new_reputation)` | current registry, or the new one on first claim | Reputation registry to attest into |
+| `set_moderation_registry(new_registry)` | admin | Ban/mute registry consulted by `submit_feedback` |
+| `get_moderation_registry()` | — | Current registry (`ModerationRegistryNotSet` when unwired) |
+| `set_reputation_contract(new_reputation)` | admin | Reputation registry to attest into |
 | `get_reputation_contract()` | — | Current registry (`ReputationNotSet` when unwired) |
 | `get_mission_count()` / `mission_exists(id)` | — | Read-only helpers |
 
@@ -81,11 +85,21 @@ attestation is actually written.
   the store to the configured treasury (or is forwarded to the staking pool),
   never to the hunter and never to the caller, so a mission owner can confiscate
   spam but cannot redirect the pot.
-- **Singleton config slots use a claim-then-handover rule.** `set_treasury`,
-  `set_fee_collector`, `set_staking_pool` and `set_reputation_contract` require
-  the *new* address to authorize the first claim, so nobody can front-run a
-  freshly deployed contract and point its treasury at themselves. Once claimed,
-  only the current holder can move the slot.
+- **Config is gated behind one admin.** `set_treasury`, `set_fee_collector`,
+  `set_staking_pool`, `set_moderation_registry` and `set_reputation_contract`
+  all call `admin.require_auth()` on the address `initialize` stored, and fail
+  with `NotInitialized` before `initialize` has run. Only the admin can move a
+  slot, whoever currently holds it. This replaces the old first-caller-wins
+  rule, where anyone watching the network could claim a slot on a fresh
+  deployment and point fees or slashed stakes at themselves.
+- **`initialize` is the one remaining race.** Until it runs, whoever calls it
+  first becomes the admin (it needs the new admin's own signature, so it cannot
+  be handed to an address the caller does not control, but a front-runner can
+  still make *themselves* the admin). Deploy and initialize in the same script
+  and confirm with `get_admin`. Mission entrypoints do not depend on the admin.
+- **Admin state is instance storage, kept alive.** `initialize` and every
+  `set_*` extend the instance TTL (about 60 days), so an idle deployment does
+  not lose its admin to archival.
 - **`expire_mission` is intentionally the one permissionless money path.** It
   cannot pay anyone but the mission's own owner, only refunds slots that were
   never paid, and is idempotent-by-error rather than idempotent-by-silence.
@@ -121,31 +135,45 @@ attestation is actually written.
 | 11 | `SubmissionNotFound` | This hunter has no submission |
 | 12 | `NotPending` | Submission is not awaiting payout |
 | 13 | `InvalidAmount` | Non-positive stake, or a bad asset-gate amount |
-| 14 | `TreasuryNotSet` | Slashing read the treasury before it was claimed |
+| 14 | `TreasuryNotSet` | Slashing read the treasury before the admin configured it |
 | 15 | `StakeNotFound` | No stake locked for that (mission, hunter) |
 | 16 | `InsufficientAssetBalance` | Asset gate not met |
-| 17 | `FeeCollectorNotSet` | Fee vault read before it was claimed |
-| 18 | `StakingPoolNotSet` | Staking pool read before it was claimed |
-| 19 | `ExpiryInThePast` | `expires_at` is at or before the current timestamp |
-| 20 | `MissionExpired` | Submission attempted after the deadline |
-| 21 | `MissionNotExpired` | `expire_mission` called before the deadline |
-| 22 | `ReputationNotSet` | Reputation registry read before it was configured |
+| 17 | `FeeCollectorNotSet` | Fee vault read before the admin configured it |
+| 18 | `StakingPoolNotSet` | Staking pool read before the admin configured it |
+| 19 | `HunterBanned` | Hunter is banned or muted in the configured moderation registry |
+| 20 | `ModerationRegistryNotSet` | No moderation registry has been configured |
+| 21 | `AlreadyRejected` | Submission was already rejected |
+| 22 | `ExpiryInThePast` | `expires_at` is at or before the current timestamp |
+| 23 | `MissionExpired` | Submission attempted after the deadline |
+| 24 | `MissionNotExpired` | `expire_mission` called before the deadline |
+| 25 | `ReputationNotSet` | Reputation registry read before it was configured |
+| 26 | `NotInitialized` | A `set_*` entrypoint or `get_admin` ran before `initialize` |
+| 27 | `AlreadyInitialized` | `initialize` was called a second time |
+| 28 | `Unauthorized` | Reserved. A non-admin caller currently fails in the host's auth check (`Error(Auth, InvalidAction)`), not with this code |
+
+Codes are append-only: `frontend/src/lib/errorMap.ts` keys on these numbers.
 
 ## Wiring the optional collaborators
 
-Each of these is independent and opt-in; do them in any order.
+Initialize the store first, right after deploying it. Each collaborator is then
+independent and opt-in, and every call below is signed by the **admin**
+(`--source admin`), not by the contract being wired in.
 
 ```bash
+# once, immediately after deploy: becomes the admin for everything below
+stellar contract invoke --id <STORE_ID> --source admin --network testnet \
+  -- initialize --admin admin
+
 # slash destination
-stellar contract invoke --id <STORE_ID> --source treasury --network testnet \
+stellar contract invoke --id <STORE_ID> --source admin --network testnet \
   -- set_treasury --new_treasury <TREASURY_ID>
 
 # protocol fee vault (quid-fee-collector)
-stellar contract invoke --id <STORE_ID> --source collector --network testnet \
+stellar contract invoke --id <STORE_ID> --source admin --network testnet \
   -- set_fee_collector --new_collector <FEE_COLLECTOR_ID>
 
 # reputation registry (quid-reputation, already initialized)
-stellar contract invoke --id <STORE_ID> --source registry --network testnet \
+stellar contract invoke --id <STORE_ID> --source admin --network testnet \
   -- set_reputation_contract --new_reputation <REPUTATION_ID>
 ```
 

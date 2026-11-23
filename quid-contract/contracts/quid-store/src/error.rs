@@ -33,4 +33,12 @@ pub enum QuidError {
     /// `expire_mission` was called before the mission's deadline.
     MissionNotExpired = 24,
     ReputationNotSet = 25,
+    /// A config entrypoint was called before `initialize` set the admin.
+    NotInitialized = 26,
+    /// `initialize` was called again after the admin was already set.
+    AlreadyInitialized = 27,
+    /// Reserved for admin-gated checks that surface a contract error. Today a
+    /// caller that is not the admin fails earlier, in the host's auth check
+    /// (`Error(Auth, InvalidAction)`), so this code is not returned yet.
+    Unauthorized = 28,
 }

@@ -33,9 +33,8 @@ stellar contract invoke --id <STORE_CONTRACT_ID> --source alice --network testne
 
 Once set, `submit_feedback` rejects banned or muted hunters with
 `QuidError::HunterBanned` (#19). Stores without a registry are unaffected.
-The slot follows the store's usual handover rule: the first caller must
-authorize as the new registry, and afterwards only the current registry can
-move it.
+`set_moderation_registry` is admin-gated: sign with the store admin set by the
+store's `initialize` (it fails with `NotInitialized` until that has run).
 
 ## Errors
 
