@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { BriefcaseBusiness, ChevronLeft, ChevronRight, Send } from "lucide-react";
 import SubmitFeedbackModal from "@/components/hunter/SubmitFeedbackModal";
 import { PendingBadge } from "@/components/ui/PendingBadge";
@@ -241,6 +242,16 @@ export default function HunterQuestTabs() {
             </button>
           );
         })}
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <Link
+          href="/hunter/my-submissions"
+          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        >
+          Track reports with status timeline
+          <ChevronRight className="size-3" />
+        </Link>
       </div>
 
       <div className={showPagination ? "flex min-h-[720px] flex-col" : undefined}>

@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import HunterQuestTabs from "@/components/hunter/HunterQuestTabs";
 
 const earners = [
@@ -33,6 +34,22 @@ export default function HunterDashboard() {
 
       <main className="mx-auto grid max-w-[1720px] gap-5 px-5 sm:px-8 lg:grid-cols-[1fr_420px] lg:px-12 lg:py-6">
         <section>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border border-foreground bg-card p-4 brutal-shadow">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.2em]">
+                First mission checklist
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Skills, wallet, testnet funding and a practice report.
+              </p>
+            </div>
+            <Link
+              href="/hunter/onboarding"
+              className="inline-flex min-h-11 items-center border border-foreground bg-brutal-lime px-4 text-sm font-bold uppercase"
+            >
+              Start walkthrough
+            </Link>
+          </div>
           <HunterQuestTabs />
         </section>
 

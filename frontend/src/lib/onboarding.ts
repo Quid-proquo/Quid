@@ -55,3 +55,66 @@ export function getDashboardRouteForRole(role: UserRole): string {
     ? ONBOARDING_ROUTES.creator
     : ONBOARDING_ROUTES.hunter;
 }
+
+export type HunterOnboardingStep =
+  | 'skills'
+  | 'wallet'
+  | 'funding'
+  | 'practice'
+  | 'complete';
+
+export interface HunterOnboardingProgress {
+  step: HunterOnboardingStep;
+  skills: string[];
+  practicePassed: boolean;
+  skipped: boolean;
+  completedAt: string | null;
+}
+
+export const HUNTER_ONBOARDING_STORAGE_KEY = 'quid_hunter_onboarding';
+
+const DEFAULT_HUNTER_PROGRESS: HunterOnboardingProgress = {
+  step: 'skills',
+  skills: [],
+  practicePassed: false,
+  skipped: false,
+  completedAt: null,
+};
+
+function progressKey(address?: string | null): string {
+  return address
+    ? `${HUNTER_ONBOARDING_STORAGE_KEY}:${address}`
+    : HUNTER_ONBOARDING_STORAGE_KEY;
+}
+
+export function getHunterOnboardingProgress(
+  address?: string | null,
+): HunterOnboardingProgress {
+  if (typeof window === 'undefined') return DEFAULT_HUNTER_PROGRESS;
+  try {
+    const raw = localStorage.getItem(progressKey(address));
+    if (!raw) return DEFAULT_HUNTER_PROGRESS;
+    const parsed = JSON.parse(raw) as Partial<HunterOnboardingProgress>;
+    return { ...DEFAULT_HUNTER_PROGRESS, ...parsed };
+  } catch {
+    return DEFAULT_HUNTER_PROGRESS;
+  }
+}
+
+export function saveHunterOnboardingProgress(
+  progress: HunterOnboardingProgress,
+  address?: string | null,
+): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(progressKey(address), JSON.stringify(progress));
+}
+
+export function clearHunterOnboardingProgress(address?: string | null): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(progressKey(address));
+}
+
+export function isHunterOnboardingComplete(address?: string | null): boolean {
+  const progress = getHunterOnboardingProgress(address);
+  return progress.step === 'complete' || progress.skipped;
+}

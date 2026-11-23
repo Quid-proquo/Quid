@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { HunterService } from './hunter.service';
@@ -20,5 +20,20 @@ export class HunterController {
   @Get('my-submissions')
   mySubmissions(@Req() req: AuthenticatedRequest): Promise<unknown> {
     return this.hunterService.getMySubmissions(req.user.address);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('claimables')
+  claimables(@Req() req: AuthenticatedRequest): Promise<unknown> {
+    return this.hunterService.getClaimables(req.user.address);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('claimables/:submissionId/claim')
+  claim(
+    @Req() req: AuthenticatedRequest,
+    @Param('submissionId') submissionId: string,
+  ): Promise<unknown> {
+    return this.hunterService.claimSubmission(req.user.address, submissionId);
   }
 }

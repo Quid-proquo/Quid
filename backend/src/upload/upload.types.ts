@@ -4,3 +4,15 @@ export interface UploadedFilePayload {
   size: number;
   buffer?: Buffer;
 }
+
+export interface ProcessedImageThumbnail {
+  body: Buffer;
+  filename: string;
+  mimeType: 'image/webp';
+}
+
+export interface ProcessedImage {
+  body: Buffer;
+  mimeType: string;
+  thumbnail?: ProcessedImageThumbnail;
+}

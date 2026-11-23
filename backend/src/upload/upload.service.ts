@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IPFS_CLIENT, IpfsClient } from './ipfs.client';
+import { ImageProcessor } from './image-processor';
 import { UploadedFilePayload } from './upload.types';
 
 /** 5 MiB — large enough for a demo video, small enough to bound pin costs. */
@@ -39,6 +40,8 @@ export interface UploadFileResult {
   size: number;
   gatewayUrl: string;
   provider: string;
+  thumbnailCid?: string;
+  thumbnailGatewayUrl?: string;
 }
 
 export interface UploadJsonResult {
@@ -53,6 +56,7 @@ export class UploadService {
   constructor(
     @Inject(IPFS_CLIENT) private readonly ipfs: IpfsClient,
     private readonly config: ConfigService,
+    private readonly imageProcessor: ImageProcessor,
   ) {}
 
   /**
@@ -83,11 +87,31 @@ export class UploadService {
       );
     }
 
-    const { cid, size } = await this.ipfs.pin({
+    const sanitizedFilename = this.sanitizeFilename(file.originalname);
+    const processed = await this.imageProcessor.process(
       body,
-      filename: this.sanitizeFilename(file.originalname),
-      mimeType: file.mimetype,
+      file.mimetype,
+      sanitizedFilename,
+    );
+
+    const { cid, size } = await this.ipfs.pin({
+      body: processed.body,
+      filename: sanitizedFilename,
+      mimeType: processed.mimeType,
     });
+
+    let thumbnailCid: string | undefined;
+    let thumbnailGatewayUrl: string | undefined;
+
+    if (processed.thumbnail) {
+      const thumbnail = await this.ipfs.pin({
+        body: processed.thumbnail.body,
+        filename: processed.thumbnail.filename,
+        mimeType: processed.thumbnail.mimeType,
+      });
+      thumbnailCid = thumbnail.cid;
+      thumbnailGatewayUrl = this.gatewayUrl(thumbnail.cid);
+    }
 
     return {
       cid,
@@ -96,6 +120,7 @@ export class UploadService {
       size,
       gatewayUrl: this.gatewayUrl(cid),
       provider: 'pinata',
+      ...(thumbnailCid ? { thumbnailCid, thumbnailGatewayUrl } : {}),
     };
   }
 

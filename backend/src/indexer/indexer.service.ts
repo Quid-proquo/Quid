@@ -146,6 +146,9 @@ export class IndexerService {
       case 'mission:pause':
         await this.updateMissionStatus(tx, event, MissionStatus.PAUSED);
         return;
+      case 'mission:meta':
+        await this.applyMissionMetadataUpdate(tx, event);
+        return;
       case 'fee:charged':
         return;
       default:
@@ -348,6 +351,34 @@ export class IndexerService {
     if (result.count !== 1) {
       throw new Error(
         `Mission status event ${event.id} references unknown mission ${onChainId}`,
+      );
+    }
+  }
+
+  private async applyMissionMetadataUpdate(
+    tx: Prisma.TransactionClient,
+    event: rpc.Api.EventResponse,
+  ): Promise<void> {
+    const fields = this.decodeFields(event.value, [
+      'mission_id',
+      'title',
+      'description_cid',
+    ]);
+    const onChainId = this.requiredString(fields.mission_id, 'mission_id');
+    const title = this.requiredString(fields.title, 'title');
+    const descriptionCid = this.requiredString(
+      fields.description_cid,
+      'description_cid',
+    );
+
+    const result = await tx.mission.updateMany({
+      where: { onChainId },
+      data: { title, descriptionCid },
+    });
+
+    if (result.count !== 1) {
+      throw new Error(
+        `Mission metadata event ${event.id} references unknown mission ${onChainId}`,
       );
     }
   }

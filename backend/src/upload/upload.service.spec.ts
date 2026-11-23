@@ -5,8 +5,13 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import sharp from 'sharp';
+import { ImageProcessor } from './image-processor';
 import { IPFS_CLIENT, IpfsClient } from './ipfs.client';
 import { UploadService } from './upload.service';
+
+const MAIN_CID = 'bafkreiabc';
+const THUMB_CID = 'bafkreithumb';
 
 const mockConfig: Partial<Record<string, string>> = {};
 
@@ -19,16 +24,37 @@ const mockIpfsClient: Partial<IpfsClient> = {
   pin: jest.fn(),
 };
 
+const createPng = () =>
+  sharp({
+    create: {
+      width: 8,
+      height: 8,
+      channels: 3,
+      background: { r: 12, g: 34, b: 56 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+const mockPins = (mainSize = 6, thumbnailSize = 3) => {
+  (mockIpfsClient.pin as jest.Mock)
+    .mockResolvedValueOnce({ cid: MAIN_CID, size: mainSize })
+    .mockResolvedValueOnce({ cid: THUMB_CID, size: thumbnailSize });
+};
+
 describe('UploadService', () => {
   let service: UploadService;
+  let pngBuffer: Buffer;
 
   beforeEach(async () => {
     Object.keys(mockConfig).forEach((k) => delete mockConfig[k]);
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    pngBuffer = await createPng();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UploadService,
+        ImageProcessor,
         { provide: ConfigService, useValue: mockConfigService },
         { provide: IPFS_CLIENT, useValue: mockIpfsClient },
       ],
@@ -38,39 +64,54 @@ describe('UploadService', () => {
   });
 
   describe('uploadFile', () => {
-    it('pins the file and returns a real CID plus gateway URL', async () => {
-      (mockIpfsClient.pin as jest.Mock).mockResolvedValue({
-        cid: 'bafkreiabc',
-        size: 6,
-      });
+    it('pins the processed file and thumbnail, returning real CIDs and gateway URLs', async () => {
+      mockPins(6, 3);
 
       const result = await service.uploadFile({
         originalname: 'proof.png',
         mimetype: 'image/png',
-        size: 6,
-        buffer: Buffer.from('hello!'),
+        size: pngBuffer.byteLength,
+        buffer: pngBuffer,
       });
 
-      expect(mockIpfsClient.pin).toHaveBeenCalledWith({
-        body: Buffer.from('hello!'),
-        filename: 'proof.png',
-        mimeType: 'image/png',
+      expect(mockIpfsClient.pin).toHaveBeenCalledTimes(2);
+      expect(mockIpfsClient.pin).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          body: expect.any(Buffer),
+          filename: 'proof.png',
+          mimeType: 'image/png',
+        }),
+      );
+      expect(mockIpfsClient.pin).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          body: expect.any(Buffer),
+          filename: 'proof-thumb.webp',
+          mimeType: 'image/webp',
+        }),
+      );
+      const pinnedBody = (mockIpfsClient.pin as jest.Mock).mock.calls[0][0]
+        .body;
+      expect(await sharp(pinnedBody).metadata()).toMatchObject({
+        format: 'png',
+        width: 8,
+        height: 8,
       });
       expect(result).toEqual({
-        cid: 'bafkreiabc',
+        cid: MAIN_CID,
         filename: 'proof.png',
         mimeType: 'image/png',
         size: 6,
-        gatewayUrl: 'https://gateway.pinata.cloud/ipfs/bafkreiabc',
+        gatewayUrl: `https://gateway.pinata.cloud/ipfs/${MAIN_CID}`,
         provider: 'pinata',
+        thumbnailCid: THUMB_CID,
+        thumbnailGatewayUrl: `https://gateway.pinata.cloud/ipfs/${THUMB_CID}`,
       });
     });
 
     it('strips path components out of the filename recorded in IPFS', async () => {
-      (mockIpfsClient.pin as jest.Mock).mockResolvedValue({
-        cid: 'bafkreiabc',
-        size: 3,
-      });
+      mockPins();
 
       await service.uploadFile({
         // A hostile client can send any originalname; it must not leak into
@@ -106,7 +147,7 @@ describe('UploadService', () => {
     });
 
     it('enforces the buffer length limit, not the client-declared size', async () => {
-      mockConfig.UPLOAD_MAX_BYTES = '4';
+      mockConfig.UPLOAD_MAX_BYTES = String(pngBuffer.byteLength - 1);
 
       await expect(
         service.uploadFile({
@@ -114,7 +155,7 @@ describe('UploadService', () => {
           // Declaring a small size must not bypass the limit.
           mimetype: 'image/png',
           size: 1,
-          buffer: Buffer.from('12345'),
+          buffer: pngBuffer,
         }),
       ).rejects.toThrow(PayloadTooLargeException);
       expect(mockIpfsClient.pin).not.toHaveBeenCalled();
@@ -122,14 +163,10 @@ describe('UploadService', () => {
 
     it('uses the default size limit when UPLOAD_MAX_BYTES is unset or invalid', async () => {
       mockConfig.UPLOAD_MAX_BYTES = 'not-a-number';
+      mockPins(5 * 1024 * 1024);
 
       const allowed = Buffer.alloc(5 * 1024 * 1024);
       const oversized = Buffer.alloc(5 * 1024 * 1024 + 1);
-
-      (mockIpfsClient.pin as jest.Mock).mockResolvedValue({
-        cid: 'bafkreiabc',
-        size: allowed.length,
-      });
 
       await expect(
         service.uploadFile({
@@ -164,18 +201,14 @@ describe('UploadService', () => {
 
     it('honours a UPLOAD_ALLOWED_MIME_TYPES override', async () => {
       mockConfig.UPLOAD_ALLOWED_MIME_TYPES = 'image/png,application/pdf';
-
-      (mockIpfsClient.pin as jest.Mock).mockResolvedValue({
-        cid: 'bafkreiabc',
-        size: 3,
-      });
+      mockPins(3);
 
       await expect(
         service.uploadFile({
           originalname: 'proof.png',
           mimetype: 'image/png',
-          size: 3,
-          buffer: Buffer.from('png'),
+          size: pngBuffer.byteLength,
+          buffer: pngBuffer,
         }),
       ).resolves.toMatchObject({ mimeType: 'image/png' });
 
@@ -192,10 +225,7 @@ describe('UploadService', () => {
 
   describe('uploadJson', () => {
     it('pins serialized JSON and returns a CID', async () => {
-      (mockIpfsClient.pin as jest.Mock).mockResolvedValue({
-        cid: 'bafkreiabc',
-        size: 27,
-      });
+      mockPins(27);
 
       const result = await service.uploadJson({
         feedback: 'Great dApp UX!',
@@ -210,9 +240,9 @@ describe('UploadService', () => {
         mimeType: 'application/json',
       });
       expect(result).toEqual({
-        cid: 'bafkreiabc',
+        cid: MAIN_CID,
         size: 27,
-        gatewayUrl: 'https://gateway.pinata.cloud/ipfs/bafkreiabc',
+        gatewayUrl: `https://gateway.pinata.cloud/ipfs/${MAIN_CID}`,
         provider: 'pinata',
       });
     });

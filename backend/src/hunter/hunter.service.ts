@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { SubmissionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -30,6 +35,74 @@ export class HunterService {
           },
         },
       },
+    });
+  }
+
+  async getClaimables(hunterAddress: string): Promise<unknown> {
+    const submissions = await this.prisma.submission.findMany({
+      where: { hunterAddress, status: SubmissionStatus.APPROVED },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        mission: {
+          select: {
+            title: true,
+            rewardToken: true,
+            rewardAmount: true,
+          },
+        },
+      },
+    });
+
+    return submissions.map((submission) => ({
+      submissionId: submission.id,
+      missionTitle: submission.mission.title,
+      amount: submission.mission.rewardAmount,
+      asset: submission.mission.rewardToken || 'XLM',
+      approvedAt: submission.updatedAt.toISOString(),
+    }));
+  }
+
+  async claimSubmission(
+    hunterAddress: string,
+    submissionId: string,
+  ): Promise<unknown> {
+    const submission = await this.prisma.submission.findFirst({
+      where: { id: submissionId, hunterAddress },
+      include: {
+        mission: {
+          select: {
+            rewardToken: true,
+            rewardAmount: true,
+          },
+        },
+      },
+    });
+
+    if (!submission) {
+      throw new NotFoundException('Submission not found for this hunter.');
+    }
+    if (submission.status !== SubmissionStatus.APPROVED) {
+      throw new BadRequestException(
+        'Only approved submissions can be claimed.',
+      );
+    }
+
+    const amount = Number(submission.mission.rewardAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('This mission has no claimable reward.');
+    }
+
+    const seedKey = `claim:${submissionId}`;
+    return this.prisma.cashout.upsert({
+      where: { seedKey },
+      create: {
+        seedKey,
+        hunterAddress,
+        amount: submission.mission.rewardAmount,
+        asset: submission.mission.rewardToken || 'XLM',
+        status: 'PENDING',
+      },
+      update: {},
     });
   }
 }

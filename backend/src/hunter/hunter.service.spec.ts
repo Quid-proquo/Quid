@@ -26,12 +26,14 @@ const sampleSubmission = {
 describe('HunterService', () => {
   let service: HunterService;
   let prisma: {
-    submission: { findMany: jest.Mock };
+    submission: { findMany: jest.Mock; findFirst: jest.Mock };
+    cashout: { upsert: jest.Mock };
   };
 
   beforeEach(() => {
     prisma = {
-      submission: { findMany: jest.fn() },
+      submission: { findMany: jest.fn(), findFirst: jest.fn() },
+      cashout: { upsert: jest.fn() },
     };
 
     service = new HunterService(prisma as unknown as PrismaService);
@@ -90,5 +92,75 @@ describe('HunterService', () => {
     const result = await service.getMySubmissions('GHUNTER...');
 
     expect(result).toEqual([]);
+  });
+
+  it('returns only approved missions as claimables', async () => {
+    prisma.submission.findMany.mockResolvedValue([
+      {
+        ...sampleSubmission,
+        id: 'submission-3',
+        status: SubmissionStatus.APPROVED,
+        updatedAt: new Date('2026-10-02T10:00:00Z'),
+      },
+    ]);
+
+    const result = (await service.getClaimables(
+      sampleSubmission.hunterAddress,
+    )) as {
+      submissionId: string;
+      amount: string;
+      asset: string;
+    }[];
+
+    expect(prisma.submission.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          hunterAddress: sampleSubmission.hunterAddress,
+          status: SubmissionStatus.APPROVED,
+        },
+      }),
+    );
+    expect(result[0]).toMatchObject({
+      submissionId: 'submission-3',
+      amount: '640',
+      asset: 'XLM',
+    });
+  });
+
+  it('records an idempotent cashout request for an approved submission', async () => {
+    prisma.submission.findFirst.mockResolvedValue({
+      ...sampleSubmission,
+      status: SubmissionStatus.APPROVED,
+    });
+    prisma.cashout.upsert.mockResolvedValue({ id: 'cashout-1' });
+
+    await service.claimSubmission(
+      sampleSubmission.hunterAddress,
+      'submission-3',
+    );
+
+    expect(prisma.cashout.upsert).toHaveBeenCalledWith({
+      where: { seedKey: 'claim:submission-3' },
+      create: {
+        seedKey: 'claim:submission-3',
+        hunterAddress: sampleSubmission.hunterAddress,
+        amount: '640',
+        asset: 'XLM',
+        status: 'PENDING',
+      },
+      update: {},
+    });
+  });
+
+  it('rejects claims for missing or unapproved submissions', async () => {
+    prisma.submission.findFirst.mockResolvedValueOnce(null);
+    await expect(
+      service.claimSubmission(sampleSubmission.hunterAddress, 'missing'),
+    ).rejects.toThrow('Submission not found');
+
+    prisma.submission.findFirst.mockResolvedValueOnce(sampleSubmission);
+    await expect(
+      service.claimSubmission(sampleSubmission.hunterAddress, 'submission-1'),
+    ).rejects.toThrow('Only approved submissions');
   });
 });

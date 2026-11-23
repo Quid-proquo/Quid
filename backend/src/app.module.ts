@@ -5,6 +5,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { DemoGuard } from './demo/demo.guard';
 import { AuthModule } from './auth/auth.module';
 import { HunterModule } from './hunter/hunter.module';
 import { MissionsModule } from './missions/missions.module';
@@ -57,6 +58,10 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: DemoGuard,
     },
   ],
 })

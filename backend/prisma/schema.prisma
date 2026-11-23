@@ -1,23 +1,23 @@
 generator client {
- provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
- provider = "postgresql"
+  provider = "postgresql"
 }
 
 enum UserRole {
- EARNER
- CREATOR
+  EARNER
+  CREATOR
 }
 
 enum MissionStatus {
- CREATED
- OPEN
- STARTED
- PAUSED
- COMPLETED
- CANCELLED
+  CREATED
+  OPEN
+  STARTED
+  PAUSED
+  COMPLETED
+  CANCELLED
 }
 
 enum SubmissionStatus {
@@ -43,104 +43,131 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum ProofStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+enum CashoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum LeaderboardPeriod {
+  WEEKLY
+  SEASON
+}
+
 model User {
- id String @id @default(uuid()) @map("id")
- address String @unique @map("address")
- email String? @unique @map("email")
- displayName String? @map("display_name")
- bio String? @map("bio")
- role UserRole @default(EARNER)
+  id          String   @id @default(uuid()) @map("id")
+  address     String   @unique @map("address")
+  email       String?  @unique @map("email")
+  displayName String?  @map("display_name")
+  bio         String?  @map("bio")
+  role        UserRole @default(EARNER)
 
- createdAt DateTime @default(now()) @map("created_at")
- updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
- // Relationships
- missions Mission[]
- submissions Submission[]
- missionDrafts MissionDraft[]
+  // Relationships
+  missions      Mission[]
+  submissions   Submission[]
+  missionDrafts MissionDraft[]
+  cashouts      Cashout[]
 
- @@map("users")
+  @@map("users")
 }
 
 model Mission {
- id String @id @default(uuid()) @map("id")
- ownerAddress String @map("owner_address")
- title String @map("title")
- descriptionCid String @map("description_cid")
- metadataCid String @map("metadata_cid")
- metadata Json @map("metadata")
- rewardToken String @map("reward_token")
- rewardAmount String @map("reward_amount")
- maxParticipants Int @default(0) @map("max_participants")
- participantsCount Int @default(0) @map("participants_count")
- status MissionStatus @default(OPEN) @map("status")
- aiSummary String @map("ai_summary")
- minAssetToken String? @map("min_asset_token")
- minAssetAmount Decimal @default(0) @db.Decimal(39, 0) @map("min_asset_amount")
- /// Optional unix timestamp encoded as a decimal string to preserve the full u64 range.
- expiresAt String? @map("expires_at")
- /// Decimal u64 mission id returned by `create_mission`, stored as text to
- /// preserve precision. NULL until the creator publishes the mission on-chain.
- onChainId String? @unique @map("on_chain_id")
- indexedFromChain Boolean @default(false) @map("indexed_from_chain")
- createdAt DateTime @default(now()) @map("created_at")
- updatedAt DateTime @updatedAt @map("updated_at")
+  id                String        @id @default(uuid()) @map("id")
+  ownerAddress      String        @map("owner_address")
+  title             String        @map("title")
+  descriptionCid    String        @map("description_cid")
+  metadataCid       String        @map("metadata_cid")
+  metadata          Json          @map("metadata")
+  rewardToken       String        @map("reward_token")
+  rewardAmount      String        @map("reward_amount")
+  maxParticipants   Int           @default(0) @map("max_participants")
+  participantsCount Int           @default(0) @map("participants_count")
+  status            MissionStatus @default(OPEN) @map("status")
+  aiSummary         String        @map("ai_summary")
+  minAssetToken     String?       @map("min_asset_token")
+  minAssetAmount    Decimal       @default(0) @map("min_asset_amount") @db.Decimal(39, 0)
+  /// Optional unix timestamp encoded as a decimal string to preserve the full u64 range.
+  expiresAt         String?       @map("expires_at")
+  /// Decimal u64 mission id returned by `create_mission`, stored as text to
+  /// preserve precision. NULL until the creator publishes the mission on-chain.
+  onChainId         String?       @unique @map("on_chain_id")
+  indexedFromChain  Boolean       @default(false) @map("indexed_from_chain")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
 
- owner User @relation(fields: [ownerAddress], references: [address])
- submissions Submission[]
+  owner       User         @relation(fields: [ownerAddress], references: [address])
+  submissions Submission[]
 
- @@index([ownerAddress])
-
- @@index([status, createdAt(sort: Desc)])
- @@map("missions")
+  @@index([ownerAddress])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("missions")
 }
 
 model MissionDraft {
- id String @id @default(uuid()) @map("id")
- ownerAddress String @map("owner_address")
- title String @map("title")
- data Json @map("data")
- publishedAt DateTime? @map("published_at")
- publishedMissionId String? @unique @map("published_mission_id")
- createdAt DateTime @default(now()) @map("created_at")
- updatedAt DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid()) @map("id")
+  ownerAddress       String    @map("owner_address")
+  title              String    @map("title")
+  data               Json      @map("data")
+  publishedAt        DateTime? @map("published_at")
+  publishedMissionId String?   @unique @map("published_mission_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
- owner User @relation(fields: [ownerAddress], references: [address])
+  owner User @relation(fields: [ownerAddress], references: [address])
 
- @@index([ownerAddress, updatedAt])
- @@map("mission_drafts")
+  @@index([ownerAddress, updatedAt])
+  @@map("mission_drafts")
 }
 
 model Submission {
- id String @id @default(uuid()) @map("id")
- missionId String @map("mission_id")
- hunterAddress String @map("hunter_address")
- ipfsCid String @map("ipfs_cid")
- textPayload String? @map("text_payload")
- sentiment Float? @map("sentiment")
- status SubmissionStatus @default(PENDING) @map("status")
- stakeToken String? @map("stake_token")
- stakeAmount Decimal? @db.Decimal(39, 0) @map("stake_amount")
- rejectionReason String? @map("rejection_reason")
- txHash String? @unique @map("tx_hash")
- chainConfirmed Boolean @default(false) @map("chain_confirmed")
- createdAt DateTime @default(now()) @map("created_at")
- updatedAt DateTime @updatedAt @map("updated_at")
+  id              String           @id @default(uuid()) @map("id")
+  missionId       String           @map("mission_id")
+  hunterAddress   String           @map("hunter_address")
+  ipfsCid         String           @map("ipfs_cid")
+  textPayload     String?          @map("text_payload")
+  sentiment       Float?           @map("sentiment")
+  status          SubmissionStatus @default(PENDING) @map("status")
+  stakeToken      String?          @map("stake_token")
+  stakeAmount     Decimal?         @map("stake_amount") @db.Decimal(39, 0)
+  rejectionReason String?          @map("rejection_reason")
+  txHash          String?          @unique @map("tx_hash")
+  chainConfirmed  Boolean          @default(false) @map("chain_confirmed")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
 
- mission Mission @relation(fields: [missionId], references: [id])
- hunter User @relation(fields: [hunterAddress], references: [address])
+  mission  Mission   @relation(fields: [missionId], references: [id])
+  hunter   User      @relation(fields: [hunterAddress], references: [address])
+  proofs   Proof[]
+  disputes Dispute[]
 
- @@unique([missionId, hunterAddress])
- @@index([hunterAddress])
- @@index([missionId])
- @@map("submissions")
+  @@unique([missionId, hunterAddress])
+  @@index([hunterAddress])
+  @@index([missionId])
+  @@map("submissions")
 }
 
 model IndexerState {
-  id Int @id @default(1) @map("id")
-  lastLedger BigInt @map("last_ledger")
-  lastCursor String? @map("last_cursor")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         Int      @id @default(1) @map("id")
+  lastLedger BigInt   @map("last_ledger")
+  lastCursor String?  @map("last_cursor")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("indexer_state")
 }
@@ -150,15 +177,16 @@ model IndexerState {
 /// webhook from hiding the alert from the in-app channel, and lets the dispatch
 /// cron retry a single channel without re-sending the others.
 model Notification {
-  id String @id @default(uuid()) @map("id")
-  recipientAddress String @map("recipient_address")
-  type NotificationType @map("type")
-  subject String @map("subject")
-  body String @map("body")
-  payload Json @map("payload")
-  missionId String? @map("mission_id")
-  submissionId String? @map("submission_id")
-  createdAt DateTime @default(now()) @map("created_at")
+  id               String           @id @default(uuid()) @map("id")
+  seedKey          String?          @unique @map("seed_key")
+  recipientAddress String           @map("recipient_address")
+  type             NotificationType @map("type")
+  subject          String           @map("subject")
+  body             String           @map("body")
+  payload          Json             @map("payload")
+  missionId        String?          @map("mission_id")
+  submissionId     String?          @map("submission_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
 
   deliveries NotificationDelivery[]
 
@@ -168,18 +196,89 @@ model Notification {
 }
 
 model NotificationDelivery {
-  id String @id @default(uuid()) @map("id")
-  notificationId String @map("notification_id")
-  channel NotificationChannelName @map("channel")
-  status NotificationDeliveryStatus @default(PENDING) @map("status")
-  attempts Int @default(0) @map("attempts")
-  lastError String? @map("last_error")
-  deliveredAt DateTime? @map("delivered_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String                     @id @default(uuid()) @map("id")
+  notificationId String                     @map("notification_id")
+  channel        NotificationChannelName    @map("channel")
+  status         NotificationDeliveryStatus @default(PENDING) @map("status")
+  attempts       Int                        @default(0) @map("attempts")
+  lastError      String?                    @map("last_error")
+  deliveredAt    DateTime?                  @map("delivered_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
 
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   @@unique([notificationId, channel])
   @@index([status, createdAt])
   @@map("notification_deliveries")
+}
+
+model Proof {
+  id            String      @id @default(uuid()) @map("id")
+  seedKey       String      @unique @map("seed_key")
+  submissionId  String      @map("submission_id")
+  hunterAddress String      @map("hunter_address")
+  status        ProofStatus @default(PENDING) @map("status")
+  cid           String      @map("cid")
+  verdict       String?     @map("verdict")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([status])
+  @@map("proofs")
+}
+
+model Dispute {
+  id           String        @id @default(uuid()) @map("id")
+  seedKey      String        @unique @map("seed_key")
+  submissionId String        @map("submission_id")
+  raisedBy     String        @map("raised_by")
+  reason       String        @map("reason")
+  status       DisputeStatus @default(OPEN) @map("status")
+  resolution   String?       @map("resolution")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([status])
+  @@map("disputes")
+}
+
+model Cashout {
+  id            String        @id @default(uuid()) @map("id")
+  seedKey       String        @unique @map("seed_key")
+  hunterAddress String        @map("hunter_address")
+  amount        Decimal       @map("amount") @db.Decimal(39, 0)
+  asset         String        @default("XLM") @map("asset")
+  status        CashoutStatus @default(PENDING) @map("status")
+  txHash        String?       @unique @map("tx_hash")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  hunter User @relation(fields: [hunterAddress], references: [address])
+
+  @@index([hunterAddress])
+  @@index([status])
+  @@map("cashouts")
+}
+
+model LeaderboardEntry {
+  id                String            @id @default(uuid()) @map("id")
+  seedKey           String            @unique @map("seed_key")
+  address           String            @map("address")
+  displayName       String?           @map("display_name")
+  period            LeaderboardPeriod @map("period")
+  rank              Int               @map("rank")
+  xp                Int               @map("xp")
+  missionsCompleted Int               @map("missions_completed")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  @@unique([period, rank])
+  @@unique([period, address])
+  @@index([period, rank])
+  @@map("leaderboard_entries")
 }

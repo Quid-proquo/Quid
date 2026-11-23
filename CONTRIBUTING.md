@@ -90,6 +90,12 @@ npm run build
 npm run start:dev               # http://localhost:3001/api
 ```
 
+### Seed data and demo mode (Issue #430)
+
+Run `npm run db:seed` after the migrations to populate a local database with realistic organizations, missions in every status, submissions, proofs, disputes, cashouts, notifications and leaderboard rows. The seed uses a fixed faker seed and idempotent upserts, so running it twice is safe.
+
+Set `DEMO_MODE=true` to serve the seeded data as a read-only demo: every non-GET route returns `403` with `{ "code": "DEMO_READ_ONLY" }`, and requests without an `Authorization` header are treated as the seeded `DEMO_ADDRESS` hunter. Set `DEMO_ADDRESS` if you want a different seeded account. Never enable demo mode in production.
+
 `npm run test:e2e` is currently broken (it still expects the starter `Hello World!` route). Tracked as BE-051.
 
 ### Frontend

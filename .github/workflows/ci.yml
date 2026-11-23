@@ -63,6 +63,8 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:3001
       NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
       NEXT_PUBLIC_FRIENDBOT_URL: https://friendbot.stellar.org
+      NEXT_PUBLIC_STELLAR_EXPLORER_URL: https://stellar.expert/explorer/testnet
+      NEXT_PUBLIC_USDC_ISSUER: GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
     defaults:
       run:
         working-directory: ./frontend
@@ -118,6 +120,8 @@ jobs:
       DATABASE_URL: "postgresql://quid:quid@localhost:5432/quid_dev?schema=public"
       JWT_SECRET: "ci-secret-jwt-key"
       PORT: "3001"
+      DEMO_MODE: "false"
+      DEMO_ADDRESS: "GDEMOADDRESS0000000000000000000000000000000000000000000000"
     defaults:
       run:
         working-directory: ./backend

@@ -1,6 +1,7 @@
 "use client";
 
 import Sidebar from "@/components/creator/Sidebar";
+import BottomNav from "@/components/nav/BottomNav";
 import TopNav from "@/components/creator/TopNav";
 import RequireWallet from "@/components/auth/RequireWallet";
 import RequireRole from "@/components/auth/RequireRole";
@@ -14,12 +15,15 @@ export default function DashboardLayout({
   return (
     <RequireWallet>
       <RequireRole role="creator">
-        <div className={`${brutalDashboard} overflow-x-hidden`}>
+        <div className={`${brutalDashboard} min-w-0 overflow-x-hidden`}>
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopNav />
-            <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+            <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-24 md:pb-0">
+              {children}
+            </main>
           </div>
+          <BottomNav mode="creator" />
         </div>
       </RequireRole>
     </RequireWallet>

@@ -102,6 +102,8 @@ API base: [http://localhost:3001/api](http://localhost:3001/api) (all routes car
 | `POST` | `/api/upload` | JWT | Stub |
 | `POST` | `/api/upload/json` | JWT | Stub |
 
+Uploaded PNG, JPEG, and WebP images are re-encoded without EXIF metadata and are pinned with a separate 400px-wide WebP thumbnail. GIFs are stored byte-for-byte only when they contain no EXIF metadata; GIFs with EXIF are rejected. The image pixel cap and thumbnail width are configurable with `UPLOAD_MAX_IMAGE_PIXELS` and `UPLOAD_THUMBNAIL_WIDTH`.
+
 ### Draft publishing
 
 After `create_mission` succeeds in Freighter, publish the authenticated user's

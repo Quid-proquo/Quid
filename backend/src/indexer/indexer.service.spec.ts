@@ -192,4 +192,22 @@ describe('IndexerService (issue #314)', () => {
       }
     });
   });
+
+  describe('mission metadata update event', () => {
+    it('updates mission title and description from mission:meta', async () => {
+      const tx: any = { mission: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+      jest.spyOn(service as any, 'decodeFields').mockReturnValue({
+        mission_id: '42',
+        title: 'New title',
+        description_cid: 'bafynew',
+      });
+
+      await (service as any).applyMissionMetadataUpdate(tx, { id: 'evt-1' });
+
+      expect(tx.mission.updateMany).toHaveBeenCalledWith({
+        where: { onChainId: '42' },
+        data: { title: 'New title', descriptionCid: 'bafynew' },
+      });
+    });
+  });
 });

@@ -74,6 +74,13 @@ pub struct MissionCancelEvent {
     pub mission_id: u64,
 }
 
+#[contractevent(topics = ["mission", "meta"])]
+pub struct MissionMetadataUpdatedEvent {
+    pub mission_id: u64,
+    pub title: String,
+    pub description_cid: String,
+}
+
 #[contracttype]
 pub struct Reward {
     pub reward_token: Address,
@@ -604,6 +611,46 @@ impl QuidStoreContract {
         Self::extend_mission_ttl(&env, mission_id);
 
         MissionCancelEvent { mission_id }.publish(&env);
+
+        Ok(())
+    }
+
+    /// Edit mission metadata before the first submission arrives.
+    pub fn update_mission_metadata(
+        env: Env,
+        mission_id: u64,
+        title: Option<String>,
+        description_cid: Option<String>,
+    ) -> Result<(), QuidError> {
+        let mut mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+
+        if mission.participants_count != 0 {
+            return Err(QuidError::InvalidState);
+        }
+
+        if let Some(ref t) = title {
+            Self::validate_mission_params(t, mission.reward_amount)?;
+            mission.title = t.clone();
+        }
+
+        if let Some(ref cid) = description_cid {
+            mission.description_cid = cid.clone();
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Mission(mission_id), &mission);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Mission(mission_id), 5184000, 5184000);
+
+        MissionMetadataUpdatedEvent {
+            mission_id,
+            title: mission.title.clone(),
+            description_cid: mission.description_cid.clone(),
+        }
+        .publish(&env);
 
         Ok(())
     }
