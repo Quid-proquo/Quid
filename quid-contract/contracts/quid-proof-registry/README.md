@@ -12,6 +12,26 @@ Proof-of-Test registry: verifier attestations, M-of-N thresholds, and hunter-sub
 | `Attestations(mission, hunter, tx_hash)` | Verifier addresses | extended on write |
 | `Threshold(mission)` | M-of-N threshold (default 1) | extended on write |
 | `ValidProof(mission, hunter)` | Validity index for payouts | extended on write |
+| `MissionProbe(mission)` | Configured quid-probe contract | extended on write |
+| `ChallengeWindow(mission)` | Creator challenge period in seconds | extended on write |
+| `ProofStatus(mission, hunter)` | Pending, valid, challenged, or rejected state | extended on write |
+| `ProofCreatedAt(mission, hunter)` | Timestamp used for the challenge window | extended on write |
+| `ChallengeReason(mission, hunter)` | Creator's reason CID | extended on write |
+
+Creators can call `set_challenge_window` before proofs are recorded. During the
+window, `has_valid_proof` remains false and `challenge_proof` can move a proof
+to `Challenged`. The configured arbiter resolves it with `resolve_challenge`;
+an upheld challenge becomes `Rejected`, while a rejected challenge becomes
+`Valid`. This maps to quid-dispute by using its arbiter decision as the
+`upheld` value.
+
+Proof records include a `ProofSource` value (`Verifier`, `Signed`, or `Probe`).
+After configuring the store, the mission owner can set its probe with
+`set_mission_probe(caller, mission_id, probe)`. A hunter then calls
+`claim_probe_proof(mission_id, hunter, function)`; the registry calls the
+probe's `has_interaction` entrypoint and records a `Probe` proof only when it
+returns true. Probe claims use the zero transaction hash and are therefore
+single-use per mission and hunter.
 
 Removing a verifier does **not** invalidate past attestations.
 

@@ -1,6 +1,23 @@
 use soroban_sdk::{contracttype, Address, BytesN, String};
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq, Copy)]
+pub enum ProofSource {
+    Verifier,
+    Signed,
+    Probe,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq, Copy)]
+pub enum ProofStatus {
+    Pending,
+    Valid,
+    Challenged,
+    Rejected,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProofRecord {
     pub mission_id: u64,
@@ -9,6 +26,7 @@ pub struct ProofRecord {
     pub data_cid: String,
     pub attestation_count: u32,
     pub valid: bool,
+    pub source: ProofSource,
 }
 
 #[contracttype]
@@ -34,6 +52,12 @@ pub enum DataKey {
     /// True once attestation count meets threshold for (mission, hunter).
     ValidProof(u64, Address),
     StoreContract,
+    MissionProbe(u64),
+    ChallengeWindow(u64),
+    ProofStatus(u64, Address),
+    ProofCreatedAt(u64, Address),
+    ChallengeReason(u64, Address),
+    Arbiter,
 }
 
 pub const TTL_THRESHOLD: u32 = 100_000;

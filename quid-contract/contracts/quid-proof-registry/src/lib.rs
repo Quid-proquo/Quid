@@ -5,7 +5,8 @@
 // same span, so the allowance has to live at crate level to cover them.
 #![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
-    contract, contractclient, contractimpl, xdr::ToXdr, Address, Bytes, BytesN, Env, String, Vec,
+    contract, contractclient, contractimpl, xdr::ToXdr, Address, Bytes, BytesN, Env, String,
+    Symbol, Vec,
 };
 
 mod error;
@@ -20,6 +21,11 @@ pub use types::*;
 #[contractclient(name = "StoreClient")]
 pub trait Store {
     fn get_mission_owner(env: Env, mission_id: u64) -> Address;
+}
+
+#[contractclient(name = "ProbeClient")]
+pub trait Probe {
+    fn has_interaction(env: Env, mission_id: u64, hunter: Address, function: Symbol) -> bool;
 }
 
 fn extend(env: &Env, key: &DataKey) {
@@ -58,6 +64,59 @@ impl QuidProofRegistry {
         env.storage()
             .instance()
             .set(&DataKey::StoreContract, &store);
+        Ok(())
+    }
+
+    pub fn set_mission_probe(
+        env: Env,
+        caller: Address,
+        mission_id: u64,
+        probe: Address,
+    ) -> Result<(), ProofError> {
+        caller.require_auth();
+        let store = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::StoreContract)
+            .ok_or(ProofError::NotInitialized)?;
+        if caller != StoreClient::new(&env, &store).get_mission_owner(&mission_id) {
+            return Err(ProofError::NotAuthorized);
+        }
+        let key = DataKey::MissionProbe(mission_id);
+        env.storage().persistent().set(&key, &probe);
+        extend(&env, &key);
+        Ok(())
+    }
+
+    pub fn set_challenge_window(
+        env: Env,
+        caller: Address,
+        mission_id: u64,
+        window_secs: u64,
+    ) -> Result<(), ProofError> {
+        caller.require_auth();
+        let store = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::StoreContract)
+            .ok_or(ProofError::NotInitialized)?;
+        if caller != StoreClient::new(&env, &store).get_mission_owner(&mission_id) {
+            return Err(ProofError::NotAuthorized);
+        }
+        let key = DataKey::ChallengeWindow(mission_id);
+        env.storage().persistent().set(&key, &window_secs);
+        extend(&env, &key);
+        Ok(())
+    }
+
+    pub fn set_arbiter(env: Env, arbiter: Address) -> Result<(), ProofError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ProofError::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Arbiter, &arbiter);
         Ok(())
     }
 
@@ -147,7 +206,15 @@ impl QuidProofRegistry {
     ) -> Result<(), ProofError> {
         verifier.require_auth();
         Self::assert_verifier(&env, &verifier)?;
-        Self::add_attestation(&env, mission_id, &hunter, &tx_hash, &data_cid, &verifier)
+        Self::add_attestation(
+            &env,
+            mission_id,
+            &hunter,
+            &tx_hash,
+            &data_cid,
+            &verifier,
+            ProofSource::Verifier,
+        )
     }
 
     pub fn submit_signed_proof(
@@ -181,10 +248,70 @@ impl QuidProofRegistry {
         };
         let msg = payload_message(&env, &payload);
         env.crypto().ed25519_verify(&key, &msg, &signature);
-        Self::add_attestation(&env, mission_id, &hunter, &tx_hash, &data_cid, &verifier)
+        Self::add_attestation(
+            &env,
+            mission_id,
+            &hunter,
+            &tx_hash,
+            &data_cid,
+            &verifier,
+            ProofSource::Signed,
+        )
+    }
+
+    pub fn claim_probe_proof(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        function: Symbol,
+    ) -> Result<(), ProofError> {
+        hunter.require_auth();
+        let probe: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MissionProbe(mission_id))
+            .ok_or(ProofError::ProbeInteractionNotFound)?;
+        if !ProbeClient::new(&env, &probe).has_interaction(&mission_id, &hunter, &function) {
+            return Err(ProofError::ProbeInteractionNotFound);
+        }
+        let tx_hash = BytesN::from_array(&env, &[0; 32]);
+        Self::add_attestation(
+            &env,
+            mission_id,
+            &hunter,
+            &tx_hash,
+            &String::from_str(&env, "probe"),
+            &probe,
+            ProofSource::Probe,
+        )
     }
 
     pub fn has_valid_proof(env: Env, mission_id: u64, hunter: Address) -> bool {
+        let status: Option<ProofStatus> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ProofStatus(mission_id, hunter.clone()));
+        if matches!(
+            status,
+            Some(ProofStatus::Challenged) | Some(ProofStatus::Rejected)
+        ) {
+            return false;
+        }
+        if matches!(status, Some(ProofStatus::Pending)) {
+            let created: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::ProofCreatedAt(mission_id, hunter.clone()))
+                .unwrap_or(u64::MAX);
+            let window = env
+                .storage()
+                .persistent()
+                .get(&DataKey::ChallengeWindow(mission_id))
+                .unwrap_or(0);
+            if env.ledger().timestamp() <= created.saturating_add(window) {
+                return false;
+            }
+        }
         env.storage()
             .persistent()
             .get(&DataKey::ValidProof(mission_id, hunter))
@@ -211,6 +338,7 @@ impl QuidProofRegistry {
         tx_hash: &BytesN<32>,
         data_cid: &String,
         verifier: &Address,
+        source: ProofSource,
     ) -> Result<(), ProofError> {
         let pkey = DataKey::Proof(mission_id, hunter.clone(), tx_hash.clone());
         let akey = DataKey::Attestations(mission_id, hunter.clone(), tx_hash.clone());
@@ -241,6 +369,7 @@ impl QuidProofRegistry {
             data_cid: data_cid.clone(),
             attestation_count: count,
             valid,
+            source,
         };
         env.storage().persistent().set(&pkey, &record);
         extend(env, &pkey);
@@ -249,6 +378,96 @@ impl QuidProofRegistry {
             let vkey = DataKey::ValidProof(mission_id, hunter.clone());
             env.storage().persistent().set(&vkey, &true);
             extend(env, &vkey);
+        }
+        let status = if valid
+            && env
+                .storage()
+                .persistent()
+                .get::<DataKey, u64>(&DataKey::ChallengeWindow(mission_id))
+                .unwrap_or(0)
+                > 0
+        {
+            ProofStatus::Pending
+        } else if valid {
+            ProofStatus::Valid
+        } else {
+            ProofStatus::Pending
+        };
+        let status_key = DataKey::ProofStatus(mission_id, hunter.clone());
+        env.storage().persistent().set(&status_key, &status);
+        extend(env, &status_key);
+        let created_key = DataKey::ProofCreatedAt(mission_id, hunter.clone());
+        env.storage()
+            .persistent()
+            .set(&created_key, &env.ledger().timestamp());
+        extend(env, &created_key);
+        Ok(())
+    }
+
+    pub fn challenge_proof(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        reason_cid: String,
+    ) -> Result<(), ProofError> {
+        let store = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::StoreContract)
+            .ok_or(ProofError::NotInitialized)?;
+        let owner = StoreClient::new(&env, &store).get_mission_owner(&mission_id);
+        owner.require_auth();
+        let created: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ProofCreatedAt(mission_id, hunter.clone()))
+            .ok_or(ProofError::ProofNotFound)?;
+        let window = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ChallengeWindow(mission_id))
+            .unwrap_or(0);
+        if window == 0 || env.ledger().timestamp() > created.saturating_add(window) {
+            return Err(ProofError::ChallengeWindowClosed);
+        }
+        let key = DataKey::ProofStatus(mission_id, hunter.clone());
+        env.storage()
+            .persistent()
+            .set(&key, &ProofStatus::Challenged);
+        extend(&env, &key);
+        let reason_key = DataKey::ChallengeReason(mission_id, hunter);
+        env.storage().persistent().set(&reason_key, &reason_cid);
+        extend(&env, &reason_key);
+        Ok(())
+    }
+
+    pub fn resolve_challenge(
+        env: Env,
+        mission_id: u64,
+        hunter: Address,
+        upheld: bool,
+    ) -> Result<(), ProofError> {
+        let arbiter: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Arbiter)
+            .ok_or(ProofError::ArbiterNotSet)?;
+        arbiter.require_auth();
+        let key = DataKey::ProofStatus(mission_id, hunter.clone());
+        if env.storage().persistent().get(&key) != Some(ProofStatus::Challenged) {
+            return Err(ProofError::ProofNotFound);
+        }
+        let status = if upheld {
+            ProofStatus::Rejected
+        } else {
+            ProofStatus::Valid
+        };
+        env.storage().persistent().set(&key, &status);
+        extend(&env, &key);
+        if upheld {
+            env.storage()
+                .persistent()
+                .set(&DataKey::ValidProof(mission_id, hunter), &false);
         }
         Ok(())
     }
