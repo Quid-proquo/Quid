@@ -31,6 +31,8 @@ use types::{
 /// `attestation_type` written on the reputation record a payout produces.
 const PAYOUT_ATTESTATION_TYPE: &str = "quid-payout";
 
+const RECORD_TTL_LEDGERS: u32 = 5_184_000;
+
 #[contractevent(topics = ["mission", "create"])]
 pub struct MissionCreateEvent {
     pub mission_id: u64,
@@ -48,24 +50,38 @@ pub struct SubNewEvent {
     pub mission_id: u64,
     pub hunter: Address,
     pub ipfs_cid: String,
+    pub stake_amount: i128,
+}
+
+#[contractevent(topics = ["sub", "update"])]
+pub struct SubUpdateEvent {
+    pub mission_id: u64,
+    pub hunter: Address,
+    pub ipfs_cid: String,
 }
 
 #[contractevent(topics = ["payout", "done"])]
 pub struct PayoutDoneEvent {
     pub mission_id: u64,
     pub hunter: Address,
+    pub gross_amount: i128,
+    pub fee_amount: i128,
+    pub net_amount: i128,
 }
 
 #[contractevent(topics = ["sub", "reject"])]
 pub struct SubmissionRejectedEvent {
     pub mission_id: u64,
     pub hunter: Address,
+    pub owner: Address,
     pub stake_refunded: i128,
 }
 
-#[contractevent(topics = ["mission", "cancel"], data_format = "single-value")]
+#[contractevent(topics = ["mission", "cancel"])]
 pub struct MissionCancelEvent {
     pub mission_id: u64,
+    pub owner: Address,
+    pub refund_amount: i128,
 }
 
 #[contractevent(topics = ["mission", "meta"])]
@@ -73,6 +89,7 @@ pub struct MissionMetadataUpdatedEvent {
     pub mission_id: u64,
     pub title: String,
     pub description_cid: String,
+    pub owner: Address,
 }
 
 #[contracttype]
@@ -87,14 +104,41 @@ pub struct MinAsset {
     pub min_asset_amount: i128,
 }
 
-#[contractevent(topics = ["mission", "pause"], data_format = "single-value")]
+#[contractevent(topics = ["mission", "pause"])]
 pub struct MissionPauseEvent {
     pub mission_id: u64,
+    pub owner: Address,
+    pub status: Symbol,
+}
+
+#[contractevent(topics = ["mission", "status"])]
+pub struct MissionStatusChangeEvent {
+    pub mission_id: u64,
+    pub actor: Address,
+    pub previous_status: Symbol,
+    pub new_status: Symbol,
+}
+
+#[contractevent(topics = ["stake", "slash"])]
+pub struct StakeSlashEvent {
+    pub mission_id: u64,
+    pub owner: Address,
+    pub hunter: Address,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contractevent(topics = ["stake", "refund"])]
+pub struct StakeRefundEvent {
+    pub mission_id: u64,
+    pub hunter: Address,
+    pub amount: i128,
 }
 
 #[contractevent(topics = ["mission", "expired"])]
 pub struct MissionExpiredEvent {
     pub mission_id: u64,
+    pub owner: Address,
     pub refunded: i128,
 }
 
@@ -264,13 +308,7 @@ impl QuidStoreContract {
             expires_at,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Mission(mission_id), 5184000, 5184000);
+        Self::store_mission(&env, &mission);
 
         if fee > 0 {
             let collector = Self::get_fee_collector(env.clone())?;
@@ -514,7 +552,7 @@ impl QuidStoreContract {
         env.storage().persistent().set(&stake_key, &actual_stake);
         env.storage()
             .persistent()
-            .extend_ttl(&stake_key, 5184000, 5184000);
+            .extend_ttl(&stake_key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
 
         let submission = Submission {
             hunter: hunter.clone(),
@@ -526,12 +564,13 @@ impl QuidStoreContract {
         env.storage().persistent().set(&key, &submission);
         env.storage()
             .persistent()
-            .extend_ttl(&key, 5184000, 5184000);
+            .extend_ttl(&key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
 
         SubNewEvent {
             mission_id,
             hunter,
             ipfs_cid: submission.ipfs_cid,
+            stake_amount,
         }
         .publish(&env);
 
@@ -586,7 +625,14 @@ impl QuidStoreContract {
         env.storage().persistent().set(&key, &updated_submission);
         env.storage()
             .persistent()
-            .extend_ttl(&key, 5184000, 5184000);
+            .extend_ttl(&key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
+
+        SubUpdateEvent {
+            mission_id,
+            hunter,
+            ipfs_cid: updated_submission.ipfs_cid,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -637,7 +683,7 @@ impl QuidStoreContract {
             &mission.reward_amount,
         );
 
-        Self::release_stake(
+        let stake_refund = Self::release_stake(
             &env,
             mission_id,
             hunter.clone(),
@@ -646,24 +692,36 @@ impl QuidStoreContract {
 
         submission.status = SubmissionStatus::Paid;
         env.storage().persistent().set(&key, &submission);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
 
         mission.participants_count += 1;
         if mission.max_participants > 0 && mission.participants_count >= mission.max_participants {
             mission.status = MissionStatus::Completed;
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
-
-        PayoutDoneEvent {
-            mission_id,
-            hunter: hunter.clone(),
-        }
-        .publish(&env);
+        Self::store_mission(&env, &mission);
 
         // Reputation is opt-in: a store with no registry configured pays out
         // exactly as before, so wiring this up is non-breaking.
         Self::attest_payout(&env, mission_id, &hunter, &submission.ipfs_cid)?;
+
+        PayoutDoneEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            gross_amount: mission.reward_amount,
+            fee_amount: 0,
+            net_amount: mission.reward_amount,
+        }
+        .publish(&env);
+        if stake_refund > 0 {
+            StakeRefundEvent {
+                mission_id,
+                hunter: hunter.clone(),
+                amount: stake_refund,
+            }
+            .publish(&env);
+        }
 
         Ok(())
     }
@@ -709,11 +767,20 @@ impl QuidStoreContract {
         env.storage().persistent().set(&key, &submission);
         env.storage()
             .persistent()
-            .extend_ttl(&key, 5184000, 5184000);
+            .extend_ttl(&key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
 
+        if stake_refunded > 0 {
+            StakeRefundEvent {
+                mission_id,
+                hunter: hunter.clone(),
+                amount: stake_refunded,
+            }
+            .publish(&env);
+        }
         SubmissionRejectedEvent {
             mission_id,
             hunter,
+            owner: mission.owner,
             stake_refunded,
         }
         .publish(&env);
@@ -749,11 +816,14 @@ impl QuidStoreContract {
         }
 
         mission.status = MissionStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
+        Self::store_mission(&env, &mission);
 
-        MissionCancelEvent { mission_id }.publish(&env);
+        MissionCancelEvent {
+            mission_id,
+            owner: mission.owner,
+            refund_amount,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -781,17 +851,13 @@ impl QuidStoreContract {
             mission.description_cid = cid.clone();
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Mission(mission_id), 5184000, 5184000);
+        Self::store_mission(&env, &mission);
 
         MissionMetadataUpdatedEvent {
             mission_id,
             title: mission.title.clone(),
             description_cid: mission.description_cid.clone(),
+            owner: mission.owner,
         }
         .publish(&env);
 
@@ -839,12 +905,11 @@ impl QuidStoreContract {
         }
 
         mission.status = MissionStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
+        Self::store_mission(&env, &mission);
 
         MissionExpiredEvent {
             mission_id,
+            owner: mission.owner,
             refunded: refund_amount,
         }
         .publish(&env);
@@ -862,11 +927,14 @@ impl QuidStoreContract {
         let mut mission = Self::get_mission(env.clone(), id)?;
         mission.owner.require_auth();
         mission.status = MissionStatus::Paused;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(id), &mission);
+        Self::store_mission(&env, &mission);
 
-        MissionPauseEvent { mission_id: id }.publish(&env);
+        MissionPauseEvent {
+            mission_id: id,
+            owner: mission.owner,
+            status: Self::mission_status_symbol(&env, mission.status),
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -877,10 +945,17 @@ impl QuidStoreContract {
     ) -> Result<(), QuidError> {
         let mut mission = Self::get_mission(env.clone(), mission_id)?;
         mission.owner.require_auth();
+        let previous_status = mission.status;
         mission.status = new_status;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Mission(mission_id), &mission);
+        Self::store_mission(&env, &mission);
+
+        MissionStatusChangeEvent {
+            mission_id,
+            actor: mission.owner,
+            previous_status: Self::mission_status_symbol(&env, previous_status),
+            new_status: Self::mission_status_symbol(&env, new_status),
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -894,7 +969,16 @@ impl QuidStoreContract {
     ) -> Result<(), QuidError> {
         let mission = Self::get_mission(env.clone(), mission_id)?;
         mission.owner.require_auth();
-        Self::slash_stake(&env, mission_id, hunter, stake_token)
+        let amount = Self::slash_stake(&env, mission_id, hunter.clone(), stake_token.clone())?;
+        StakeSlashEvent {
+            mission_id,
+            owner: mission.owner,
+            hunter,
+            token: stake_token,
+            amount,
+        }
+        .publish(&env);
+        Ok(())
     }
 
     /// Configure the reusable hunter stake pool. The pool must separately
@@ -959,6 +1043,26 @@ impl QuidStoreContract {
         count += 1;
         env.storage().instance().set(&DataKey::MissionCount, &count);
         count
+    }
+
+    fn store_mission(env: &Env, mission: &Mission) {
+        let key = DataKey::Mission(mission.id);
+        env.storage().persistent().set(&key, mission);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
+    }
+
+    fn mission_status_symbol(env: &Env, status: MissionStatus) -> Symbol {
+        let status = match status {
+            MissionStatus::Created => "created",
+            MissionStatus::Open => "open",
+            MissionStatus::Started => "started",
+            MissionStatus::Paused => "paused",
+            MissionStatus::Completed => "completed",
+            MissionStatus::Cancelled => "cancelled",
+        };
+        Symbol::new(env, status)
     }
 
     fn staking_pool(env: &Env) -> Option<Address> {
@@ -1182,7 +1286,7 @@ impl QuidStoreContract {
         mission_id: u64,
         hunter: Address,
         stake_token: Address,
-    ) -> Result<(), QuidError> {
+    ) -> Result<i128, QuidError> {
         let key = DataKey::HunterStake(mission_id, hunter.clone());
 
         let amount: i128 = env
@@ -1199,7 +1303,7 @@ impl QuidStoreContract {
                 &stake_token,
             );
             env.storage().persistent().remove(&key);
-            return Ok(());
+            return Ok(amount);
         }
 
         let treasury = Self::get_treasury(env.clone())?;
@@ -1212,7 +1316,7 @@ impl QuidStoreContract {
 
         env.storage().persistent().remove(&key);
 
-        Ok(())
+        Ok(amount)
     }
 
     /// Release a stake lock back to the hunter's available pool balance.
@@ -1222,33 +1326,27 @@ impl QuidStoreContract {
     fn release_stake(env: &Env, mission_id: u64, hunter: Address, stake_token: Address) -> i128 {
         let key = DataKey::HunterStake(mission_id, hunter.clone());
 
-        if env.storage().persistent().has(&key) {
-            if let Some(pool) = Self::staking_pool(env) {
-                StakingPoolClient::new(env, &pool).unlock_for_mission(
-                    &env.current_contract_address(),
-                    &mission_id,
-                    &hunter,
-                    &stake_token,
-                );
-                let unlocked: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-                env.storage().persistent().remove(&key);
-                return unlocked;
-            }
-        }
+        let Some(amount) = env.storage().persistent().get::<DataKey, i128>(&key) else {
+            return 0;
+        };
 
-        if let Some(amount) = env.storage().persistent().get::<DataKey, i128>(&key) {
+        if let Some(pool) = Self::staking_pool(env) {
+            StakingPoolClient::new(env, &pool).unlock_for_mission(
+                &env.current_contract_address(),
+                &mission_id,
+                &hunter,
+                &stake_token,
+            );
+        } else {
             token::Client::new(env, &stake_token).transfer(
                 &env.current_contract_address(),
                 &hunter,
                 &amount,
             );
-
-            env.storage().persistent().remove(&key);
-
-            return amount;
         }
 
-        0
+        env.storage().persistent().remove(&key);
+        amount
     }
 }
 mod test;

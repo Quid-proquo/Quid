@@ -1232,6 +1232,78 @@
               "map": [
                 {
                   "key": {
+                    "symbol": "fee_amount"
+                  },
+                  "val": {
+                    "i128": "0"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "gross_amount"
+                  },
+                  "val": {
+                    "i128": "100"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "hunter"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "mission_id"
+                  },
+                  "val": {
+                    "u64": "1"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "net_amount"
+                  },
+                  "val": {
+                    "i128": "100"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "stake"
+              },
+              {
+                "symbol": "refund"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "amount"
+                  },
+                  "val": {
+                    "i128": "10"
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "hunter"
                   },
                   "val": {

@@ -2,12 +2,46 @@
 
 use super::*;
 use crate::types::MissionStatus;
-use soroban_sdk::testutils::Events;
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    Address, Env, Map as SorobanMap, String, Symbol, TryFromVal, Val,
+    testutils::{Address as _, Events as _, Ledger as _},
+    xdr, Address, Env, Event, String, Symbol, TryFromVal, Val, Vec,
 };
+
+fn store_events(env: &Env, contract_id: &Address) -> Vec<(Address, Vec<Val>, Val)> {
+    let mut store_events = Vec::new(env);
+    for event in env.events().all().iter() {
+        if event.0 == *contract_id {
+            store_events.push_back(event);
+        }
+    }
+    store_events
+}
+
+fn assert_store_event(
+    env: &Env,
+    contract_id: &Address,
+    events: &Vec<(Address, Vec<Val>, Val)>,
+    index: u32,
+    expected: &impl Event,
+) {
+    let actual = events.get(index).unwrap();
+    assert_eq!(actual.0, *contract_id);
+    let expected_topics = expected.topics(env);
+    assert_eq!(actual.1.len(), expected_topics.len());
+    let mut topic_index = 0;
+    while topic_index < actual.1.len() {
+        assert_eq!(
+            xdr::ScVal::try_from_val(env, &actual.1.get(topic_index).unwrap()).unwrap(),
+            xdr::ScVal::try_from_val(env, &expected_topics.get(topic_index).unwrap()).unwrap()
+        );
+        topic_index += 1;
+    }
+    assert_eq!(
+        xdr::ScVal::try_from_val(env, &actual.2).unwrap(),
+        xdr::ScVal::try_from_val(env, &expected.data(env)).unwrap()
+    );
+}
 
 fn setup_test_env() -> (Env, Address, Address, Address) {
     let env = Env::default();
@@ -22,6 +56,199 @@ fn setup_test_env() -> (Env, Address, Address, Address) {
     token_admin_client.mint(&owner, &1_000_000_000_000);
 
     (env, contract_id, owner, token_address)
+}
+
+#[test]
+fn test_mission_and_submission_transitions_publish_complete_events() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    let hunter = Address::generate(&env);
+    let second_hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+    mint_tokens_for_hunter(&env, &token_address, &second_hunter, 1_000);
+
+    let title = String::from_str(&env, "Events");
+    let description_cid = String::from_str(&env, "QmMission");
+    let reward = Reward {
+        reward_token: token_address.clone(),
+        reward_amount: 100,
+    };
+    let min_asset = MinAsset {
+        min_asset_token: None,
+        min_asset_amount: 0,
+    };
+    let mission_id = client.create_mission(
+        &owner,
+        &title,
+        &description_cid,
+        &reward,
+        &5,
+        &min_asset,
+        &None,
+    );
+    let created_at = env.ledger().timestamp();
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &MissionCreateEvent {
+            mission_id,
+            owner: owner.clone(),
+            title: title.clone(),
+            description_cid: description_cid.clone(),
+            reward_token: token_address.clone(),
+            reward_amount: 100,
+            max_participants: 5,
+            created_at,
+        },
+    );
+
+    let first_cid = String::from_str(&env, "QmFirst");
+    client.submit_feedback(&mission_id, &hunter, &first_cid, &token_address, &10);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &SubNewEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            ipfs_cid: first_cid.clone(),
+            stake_amount: 10,
+        },
+    );
+
+    let updated_cid = String::from_str(&env, "QmUpdated");
+    client.update_submission(&mission_id, &hunter, &updated_cid);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &SubUpdateEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            ipfs_cid: updated_cid.clone(),
+        },
+    );
+
+    client.payout_participant(&mission_id, &hunter);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 2);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &PayoutDoneEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            gross_amount: 100,
+            fee_amount: 0,
+            net_amount: 100,
+        },
+    );
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        1,
+        &StakeRefundEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            amount: 10,
+        },
+    );
+
+    let second_cid = String::from_str(&env, "QmSecond");
+    client.submit_feedback(&mission_id, &second_hunter, &second_cid, &token_address, &7);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &SubNewEvent {
+            mission_id,
+            hunter: second_hunter.clone(),
+            ipfs_cid: second_cid.clone(),
+            stake_amount: 7,
+        },
+    );
+
+    client.slash_hunter_stake(&mission_id, &second_hunter, &token_address);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &StakeSlashEvent {
+            mission_id,
+            owner: owner.clone(),
+            hunter: second_hunter,
+            token: token_address.clone(),
+            amount: 7,
+        },
+    );
+
+    client.pause_mission(&mission_id);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &MissionPauseEvent {
+            mission_id,
+            owner: owner.clone(),
+            status: Symbol::new(&env, "paused"),
+        },
+    );
+
+    client.update_mission_status(&mission_id, &MissionStatus::Started);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &MissionStatusChangeEvent {
+            mission_id,
+            actor: owner.clone(),
+            previous_status: Symbol::new(&env, "paused"),
+            new_status: Symbol::new(&env, "started"),
+        },
+    );
+
+    client.cancel_mission(&mission_id);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &MissionCancelEvent {
+            mission_id,
+            owner,
+            refund_amount: 400,
+        },
+    );
 }
 
 fn mint_tokens_for_hunter(env: &Env, token_address: &Address, hunter: &Address, amount: i128) {
@@ -1845,6 +2072,35 @@ fn test_create_mission_charges_protocol_fee_on_top_of_escrow() {
 
     let owner_before = token_client.balance(&owner);
     let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 10);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 2);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &FeeChargedEvent {
+            mission_id,
+            token: token_address.clone(),
+            amount: 25,
+        },
+    );
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        1,
+        &MissionCreateEvent {
+            mission_id,
+            owner: owner.clone(),
+            title: String::from_str(&env, "Fee Mission"),
+            description_cid: String::from_str(&env, "QmDesc"),
+            reward_token: token_address.clone(),
+            reward_amount: 100,
+            max_participants: 10,
+            created_at: env.ledger().timestamp(),
+        },
+    );
 
     // Owner pays escrow + fee; the escrow itself is untouched.
     assert_eq!(token_client.balance(&owner), owner_before - 1_000 - 25);
@@ -2185,6 +2441,43 @@ fn test_payout_issues_attestation_when_reputation_is_configured() {
     client.submit_feedback(&mission_id, &hunter, &cid, &token_address, &10);
     client.payout_participant(&mission_id, &hunter);
 
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 3);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &PayoutAttestedEvent {
+            mission_id,
+            attestation_id: 1,
+        },
+    );
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        1,
+        &PayoutDoneEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            gross_amount: 100,
+            fee_amount: 0,
+            net_amount: 100,
+        },
+    );
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        2,
+        &StakeRefundEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            amount: 10,
+        },
+    );
+
     assert_eq!(reputation.get_attestation_count(), 1);
 
     let attestation = reputation.get_attestation(&1);
@@ -2384,6 +2677,19 @@ fn test_expire_mission_refunds_the_full_escrow_of_an_untouched_mission() {
     assert!(client.is_mission_expired(&mission_id));
 
     let refunded = client.expire_mission(&mission_id);
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &MissionExpiredEvent {
+            mission_id,
+            owner: owner.clone(),
+            refunded: 500,
+        },
+    );
 
     assert_eq!(refunded, 500);
     assert_eq!(token_client.balance(&owner), owner_before);
@@ -2648,27 +2954,30 @@ fn test_reject_submission_publishes_event() {
 
     client.reject_submission(&mission_id, &hunter);
 
-    let (emitter, _topics, data) = env.events().all().last().unwrap();
-    assert_eq!(emitter, contract_id);
-
-    // The event data is a map keyed by the event field names.
-    let fields = SorobanMap::<Symbol, Val>::try_from_val(&env, &data).unwrap();
-    assert_eq!(fields.len(), 3);
-    assert_eq!(
-        u64::try_from_val(&env, &fields.get(Symbol::new(&env, "mission_id")).unwrap()).unwrap(),
-        mission_id
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 2);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &StakeRefundEvent {
+            mission_id,
+            hunter: hunter.clone(),
+            amount: 35,
+        },
     );
-    assert_eq!(
-        Address::try_from_val(&env, &fields.get(Symbol::new(&env, "hunter")).unwrap()).unwrap(),
-        hunter
-    );
-    assert_eq!(
-        i128::try_from_val(
-            &env,
-            &fields.get(Symbol::new(&env, "stake_refunded")).unwrap()
-        )
-        .unwrap(),
-        35
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        1,
+        &SubmissionRejectedEvent {
+            mission_id,
+            hunter,
+            owner,
+            stake_refunded: 35,
+        },
     );
 }
 
@@ -2929,10 +3238,26 @@ fn test_update_mission_metadata_before_submission() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let mission_id = create_pending_mission(&env, &client, &owner, &token_address, 5);
+    let title = String::from_str(&env, "Fixed title");
+    let description_cid = String::from_str(&env, "QmFixed");
     client.update_mission_metadata(
         &mission_id,
-        &Some(String::from_str(&env, "Fixed title")),
-        &Some(String::from_str(&env, "QmFixed")),
+        &Some(title.clone()),
+        &Some(description_cid.clone()),
+    );
+    let events = store_events(&env, &contract_id);
+    assert_eq!(events.len(), 1);
+    assert_store_event(
+        &env,
+        &contract_id,
+        &events,
+        0,
+        &MissionMetadataUpdatedEvent {
+            mission_id,
+            title,
+            description_cid,
+            owner,
+        },
     );
 
     let mission = client.get_mission(&mission_id);

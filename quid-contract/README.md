@@ -6,7 +6,7 @@ Soroban (Rust) smart contracts for Quid: bounty escrow, reputation, milestone pr
 
 | Package | Wasm | Role |
 |---------|------|------|
-| `quid-store` | `quid_store.wasm` | Mission bounty vault: create, submit, payout, cancel, pause, slash |
+| `quid-store` | `quid_store.wasm` | Mission bounty vault: create, submit, payout, reject, cancel, expire, pause, slash |
 | `quid-reputation` | `quid_reputation.wasm` | Admin, profiles, attestations |
 | `quid-milestone-escrow` | `quid_milestone_escrow.wasm` | Multi-milestone escrow programs |
 | `quid-referral` | `quid_referral.wasm` | Referral attribution + rewards on settled payouts |
@@ -308,7 +308,8 @@ stellar contract invoke \
 - `payout_participant` — pay hunter, refund stake
 - `reject_submission` — owner-only; refunds the hunter's stake and marks the
   submission `Rejected` without consuming a payout slot (issue #321)
-- `cancel_mission` / `pause_mission` / `update_mission_status`
+- `cancel_mission` / `expire_mission` — refund remaining escrow
+- `pause_mission` / `update_mission_status` / `update_mission_metadata`
 - `slash_hunter_stake` / treasury helpers
 - `set_fee_collector` / `get_fee_collector` — route the protocol fee to `quid-fee-collector`
 - `set_moderation_registry` / `get_moderation_registry` — reject banned/muted hunters in `submit_feedback` via `quid-moderation-registry`
@@ -316,26 +317,41 @@ stellar contract invoke \
 #### Event catalog and schema stability
 
 `quid-store` contract events are part of the backend indexer's integration
-contract. Topics are shown in order; event payload fields are encoded in the
-order shown. Soroban `u64`/`u32`/`i128` values decode as integers and `Address`
-values as Stellar addresses.
+contract. Topics are shown in order and payload fields are named. Soroban
+`u64`/`u32`/`i128` values decode as integers and `Address` values as Stellar
+addresses.
 
 | Event name | Topics | Data fields | Emitted by |
 |------------|--------|-------------|------------|
 | `MissionCreateEvent` | `["mission", "create"]` | `mission_id: u64`, `owner: Address`, `title: String`, `description_cid: String`, `reward_token: Address`, `reward_amount: i128`, `max_participants: u32`, `created_at: u64` | `create_mission`, after the mission is stored and any protocol fee is handled |
-| `SubNewEvent` | `["sub", "new"]` | `mission_id: u64`, `hunter: Address`, `ipfs_cid: String` | `submit_feedback`, after the submission and stake are stored |
-| `PayoutDoneEvent` | `["payout", "done"]` | `mission_id: u64`, `hunter: Address` | `payout_participant`, after the reward is paid and submission marked paid |
-| `SubmissionRejectedEvent` | `["sub", "reject"]` | `mission_id: u64`, `hunter: Address`, `stake_refunded: i128` | `reject_submission`, after the submission is marked `Rejected` and the stake is released (issue #321) |
-| `MissionCancelEvent` | `["mission", "cancel"]` | `mission_id: u64` (single-value data) | `cancel_mission`, after cancellation and refunds |
-| `MissionPauseEvent` | `["mission", "pause"]` | `mission_id: u64` (single-value data) | `pause_mission`, after the mission is paused |
+| `SubNewEvent` | `["sub", "new"]` | `mission_id: u64`, `hunter: Address`, `ipfs_cid: String`, `stake_amount: i128` | `submit_feedback`, after the submission and stake are stored |
+| `SubUpdateEvent` | `["sub", "update"]` | `mission_id: u64`, `hunter: Address`, `ipfs_cid: String` | `update_submission`, after the CID is updated |
+| `PayoutDoneEvent` | `["payout", "done"]` | `mission_id: u64`, `hunter: Address`, `gross_amount: i128`, `fee_amount: i128`, `net_amount: i128` | `payout_participant`, after the reward and any stake refund are settled; payout fee is zero because fees are charged at mission creation |
+| `SubmissionRejectedEvent` | `["sub", "reject"]` | `mission_id: u64`, `hunter: Address`, `owner: Address`, `stake_refunded: i128` | `reject_submission`, after the submission is rejected and stake is released |
+| `StakeRefundEvent` | `["stake", "refund"]` | `mission_id: u64`, `hunter: Address`, `amount: i128` | `payout_participant`, when a positive stake amount is refunded |
+| `MissionCancelEvent` | `["mission", "cancel"]` | `mission_id: u64`, `owner: Address`, `refund_amount: i128` | `cancel_mission`, after cancellation and refund |
+| `MissionMetadataUpdatedEvent` | `["mission", "meta"]` | `mission_id: u64`, `title: String`, `description_cid: String`, `owner: Address` | `update_mission_metadata`, after metadata is updated |
+| `MissionExpiredEvent` | `["mission", "expired"]` | `mission_id: u64`, `owner: Address`, `refunded: i128` | `expire_mission`, after the remaining escrow is refunded |
+| `MissionPauseEvent` | `["mission", "pause"]` | `mission_id: u64`, `owner: Address`, `status: Symbol` | `pause_mission`, after the mission is paused |
+| `MissionStatusChangeEvent` | `["mission", "status"]` | `mission_id: u64`, `actor: Address`, `previous_status: Symbol`, `new_status: Symbol` | `update_mission_status`, after the status is updated |
+| `StakeSlashEvent` | `["stake", "slash"]` | `mission_id: u64`, `owner: Address`, `hunter: Address`, `token: Address`, `amount: i128` | `slash_hunter_stake`, after the stake is slashed |
+| `PayoutAttestedEvent` | `["payout", "attested"]` | `mission_id: u64`, `attestation_id: u64` | `payout_participant`, when an optional reputation attestation is issued |
 | `FeeChargedEvent` | `["fee", "charged"]` | `mission_id: u64`, `token: Address`, `amount: i128` | `create_mission`, only when a non-zero protocol fee is charged |
 
-`update_mission_status` emits no event. Adding a new event or changing an
-existing topic, field order, field type, or single-value encoding requires a
-reviewed schema change. Before merging such a change, update this catalog,
-notify backend/indexer owners, version and deploy the contract/indexer
-compatibility change together, and cover old and new event handling in tests.
-Do not silently reuse an existing topic with a different payload.
+Fees are charged during mission creation, not deducted from individual
+payouts. Therefore, a payout reports its full reward as gross and net, with a
+zero payout fee. A stake-refund event is emitted only when a positive stake is
+returned. Event topics remain stable; consumers should decode named payload
+fields and tolerate added fields. Before changing an existing topic or field
+type, coordinate a reviewed schema change with backend/indexer owners and test
+contract/indexer compatibility together.
+
+#### Persistent storage and TTL
+
+The `Mission(u64)` persistent record is extended on creation and every status,
+payout, cancellation, metadata, or expiry update. `Submission(u64, Address)` and
+`HunterStake(u64, Address)` records are extended when written or updated.
+Payout and slash operations remove the stake record after settlement.
 
 ### `quid-reputation`
 
