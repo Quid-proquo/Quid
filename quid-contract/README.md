@@ -231,10 +231,11 @@ Copy each `C...` contract ID into `frontend/.env.local`.
 ### Initialize the store (once, right after deploy)
 
 `quid-store` configures its linked contracts (`set_treasury`, `set_staking_pool`,
-`set_fee_collector`, `set_moderation_registry`, `set_reputation_contract`)
-through a single admin. **Run this immediately after deploying the store and
-before wiring anything**: until it runs, every `set_*` call fails with
-`NotInitialized`, and whoever calls `initialize` first becomes the admin.
+`set_fee_collector`, `set_moderation_registry`, `set_reputation_contract`) and
+its rate limit (`set_rate_limit`) through a single admin. **Run this
+immediately after deploying the store and before wiring anything**: until it
+runs, every one of those calls fails with `NotInitialized`, and whoever calls
+`initialize` first becomes the admin.
 
 ```bash
 stellar contract invoke \
@@ -247,7 +248,7 @@ stellar contract invoke \
 ```
 
 `initialize` needs the new admin's signature, so `--source` must be the admin
-key. A second call fails with `AlreadyInitialized` (error `#27`) and leaves the
+key. A second call fails with `AlreadyInitialized` (error `#30`) and leaves the
 admin alone. Verify:
 
 ```bash
@@ -261,8 +262,8 @@ stellar contract invoke \
 ```
 
 Mission entrypoints (`create_mission`, `submit_feedback`, `payout_participant`,
-...) do not need an admin and keep working before this step; only the `set_*`
-config entrypoints do. For the deploy order: **store deployed → store
+...) do not need an admin and keep working before this step; only the config
+entrypoints above do. For the deploy order: **store deployed → store
 `initialize` → (optional) `set_treasury`, `set_fee_collector`,
 `set_reputation_contract`, `set_staking_pool`, `set_moderation_registry`**, each
 signed by the admin.
@@ -353,33 +354,35 @@ stellar contract invoke \
   submission `Rejected` without consuming a payout slot (issue #321)
 - `cancel_mission` / `pause_mission` / `update_mission_status`
 - `slash_hunter_stake` / treasury helpers
-- `initialize` / `get_admin` — one-time admin setup; the admin gates every `set_*` below
+- `initialize` / `get_admin` — one-time admin setup; the admin gates the config setters below
 - `set_treasury` / `set_staking_pool` / `set_reputation_contract` — admin only
 - `set_fee_collector` / `get_fee_collector` — admin only; route the protocol fee to `quid-fee-collector`
 - `set_moderation_registry` / `get_moderation_registry` — admin only; reject banned/muted hunters in `submit_feedback` via `quid-moderation-registry`
+- `set_rate_limit` / `get_rate_limit` — admin only; protocol-wide submission rate limit
 
 #### `quid-store` config storage
 
 Config lives in **instance storage** (small singleton values). Every admin call
-(`initialize` and each `set_*`) extends the instance TTL to about 60 days, so an
+(`initialize` and each admin setter) extends the instance TTL to about 60 days, so an
 idle deployment does not lose its admin to archival. Mission, submission and
 stake records are **persistent** entries and each call that writes one extends
 its TTL.
 
 | `DataKey` | Storage | Written by | Meaning |
 |-----------|---------|------------|---------|
-| `Admin` | instance | `initialize` (once) | Address that may call every `set_*` entrypoint |
+| `Admin` | instance | `initialize` (once) | Address that may call every config setter |
 | `Treasury` | instance | `set_treasury` | Slash destination |
 | `StakingPool` | instance | `set_staking_pool` | Optional reusable hunter stake pool |
 | `FeeCollector` | instance | `set_fee_collector` | Optional protocol fee vault |
 | `ModerationRegistry` | instance | `set_moderation_registry` | Optional ban/mute registry |
 | `ReputationContract` | instance | `set_reputation_contract` | Optional reputation registry |
+| `SubmissionRateLimit` | instance | `set_rate_limit` | Optional submission rate limit |
 | `MissionCount` | instance | `create_mission` | Mission id counter |
 | `Mission(id)`, `Submission(id, hunter)`, `HunterStake(id, hunter)` | persistent | mission lifecycle | Per-record state, TTL extended on write |
 
 New error codes are appended after the existing ones, so the numbers
-`frontend/src/lib/errorMap.ts` keys on do not change: `26 NotInitialized`,
-`27 AlreadyInitialized`, `28 Unauthorized` (reserved).
+`frontend/src/lib/errorMap.ts` keys on do not change: `29 NotInitialized`,
+`30 AlreadyInitialized`, `31 Unauthorized`.
 
 #### Event catalog and schema stability
 

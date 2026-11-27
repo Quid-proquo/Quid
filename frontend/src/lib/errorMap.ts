@@ -13,7 +13,8 @@
 export type QuidErrorCode =
   | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
   | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20
-  | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28;
+  | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30
+  | 31;
 
 export interface QuidErrorInfo {
   /** Short label shown in toasts / inline banners */
@@ -176,20 +177,38 @@ export const QUID_ERROR_MAP: Record<QuidErrorCode, QuidErrorInfo> = {
     description: 'The reputation registry address has not been configured. Contact the Quid team.',
     retryable: false,
   },
-  /** NotInitialized = 26 — issue #393 */
+  /** ProofMissing = 26 — SC-012 */
   26: {
+    title: 'Proof required',
+    description: 'This mission requires a verified proof before the hunter can be paid.',
+    retryable: false,
+  },
+  /** InvalidStakeTiers = 27 — SC-022 */
+  27: {
+    title: 'Invalid stake tiers',
+    description: 'Stake tiers need matching thresholds and rates, with rates that do not increase.',
+    retryable: true,
+  },
+  /** RateLimited = 28 — SC-021 */
+  28: {
+    title: 'Submission limit reached',
+    description: 'You have reached the submission limit for now. Please try again later.',
+    retryable: true,
+  },
+  /** NotInitialized = 29 — issue #393 */
+  29: {
     title: 'Contract configuration error',
     description: 'The store has not been initialized with an admin yet. Contact the Quid team.',
     retryable: false,
   },
-  /** AlreadyInitialized = 27 — issue #393 */
-  27: {
+  /** AlreadyInitialized = 30 — issue #393 */
+  30: {
     title: 'Contract already initialized',
     description: 'The store already has an admin, so it cannot be initialized again.',
     retryable: false,
   },
-  /** Unauthorized = 28 — issue #393 */
-  28: {
+  /** Unauthorized = 31 — issue #393 */
+  31: {
     title: 'Not authorized',
     description: 'Only the store admin can change the contract configuration.',
     retryable: false,

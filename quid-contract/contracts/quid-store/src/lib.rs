@@ -370,16 +370,25 @@ impl QuidStoreContract {
         Ok(())
     }
 
-    /// Set protocol-wide submission rate limit (SC-021).
-    /// Admin authorization required.
-    pub fn set_rate_limit(env: Env, admin: Address, config: Option<RateLimit>) {
-        admin.require_auth();
+    /// Set or clear (`None`) the protocol-wide submission rate limit (SC-021).
+    /// Admin only: `admin` must be the address `initialize` stored and must
+    /// authorize the call. Any other address fails with `Unauthorized`.
+    pub fn set_rate_limit(
+        env: Env,
+        admin: Address,
+        config: Option<RateLimit>,
+    ) -> Result<(), QuidError> {
+        if admin != Self::get_admin(env.clone())? {
+            return Err(QuidError::Unauthorized);
+        }
+        Self::require_admin(&env)?;
         let key = DataKey::SubmissionRateLimit;
         if let Some(cfg) = config {
             env.storage().instance().set(&key, &cfg);
         } else {
             env.storage().instance().remove(&key);
         }
+        Ok(())
     }
 
     /// Get current protocol-wide submission rate limit (SC-021).

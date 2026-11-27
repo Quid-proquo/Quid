@@ -3013,20 +3013,6 @@ fn test_missions_work_without_an_admin() {
         &mission_id,
         &hunter,
         &String::from_str(&env, "QmNoAdmin"),
-#[test]
-#[should_panic(expected = "Error(Contract, #8)")]
-fn test_update_mission_metadata_fails_after_first_submission() {
-    let (env, contract_id, owner, token_address) = setup_test_env();
-    let client = QuidStoreContractClient::new(&env, &contract_id);
-
-    let hunter = Address::generate(&env);
-    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
-
-    let mission_id = create_pending_mission(&env, &client, &owner, &token_address, 5);
-    client.submit_feedback(
-        &mission_id,
-        &hunter,
-        &String::from_str(&env, "QmSubmission"),
         &token_address,
         &10,
     );
@@ -3039,7 +3025,7 @@ fn test_update_mission_metadata_fails_after_first_submission() {
 fn test_existing_error_codes_keep_their_numbers() {
     // frontend/src/lib/errorMap.ts is keyed by these numbers, so they must never
     // be renumbered. New codes are only ever appended.
-    let expected: [(QuidError, u32); 28] = [
+    let expected: [(QuidError, u32); 31] = [
         (QuidError::MissionNotFound, 1),
         (QuidError::MissionClosed, 2),
         (QuidError::MissionFull, 3),
@@ -3065,9 +3051,12 @@ fn test_existing_error_codes_keep_their_numbers() {
         (QuidError::MissionExpired, 23),
         (QuidError::MissionNotExpired, 24),
         (QuidError::ReputationNotSet, 25),
-        (QuidError::NotInitialized, 26),
-        (QuidError::AlreadyInitialized, 27),
-        (QuidError::Unauthorized, 28),
+        (QuidError::ProofMissing, 26),
+        (QuidError::InvalidStakeTiers, 27),
+        (QuidError::RateLimited, 28),
+        (QuidError::NotInitialized, 29),
+        (QuidError::AlreadyInitialized, 30),
+        (QuidError::Unauthorized, 31),
     ];
     for (error, code) in expected {
         assert_eq!(error as u32, code, "{error:?} was renumbered");
@@ -3306,6 +3295,27 @@ fn test_payout_extends_both_the_submission_and_the_mission_ttl() {
 
     assert!(record_ttl(&env, &contract_id, &mission_key) >= RECORD_TTL_LEDGERS);
     assert!(record_ttl(&env, &contract_id, &submission_key) >= RECORD_TTL_LEDGERS);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_update_mission_metadata_fails_after_first_submission() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+
+    let mission_id = create_pending_mission(&env, &client, &owner, &token_address, 5);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmSubmission"),
+        &token_address,
+        &10,
+    );
+    client.payout_participant(&mission_id, &hunter);
+
     client.update_mission_metadata(
         &mission_id,
         &Some(String::from_str(&env, "Updated title")),
@@ -3373,7 +3383,7 @@ fn test_rate_limit_unset_preserves_default_behavior() {
 fn test_rate_limit_exceeded_and_reset_after_window() {
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
+    let admin = ensure_admin(&env, &client);
     let hunter = Address::generate(&env);
     mint_tokens_for_hunter(&env, &token_address, &hunter, 10_000);
 
@@ -3438,4 +3448,76 @@ fn test_rate_limit_exceeded_and_reset_after_window() {
         &token_address,
         &10,
     );
+}
+
+// --- set_rate_limit is admin-gated (SC-001, #393) ---
+
+const TEST_RATE_LIMIT: RateLimit = RateLimit {
+    max: 1,
+    window_secs: 300,
+};
+
+#[test]
+fn test_set_rate_limit_before_initialize_is_not_initialized() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let caller = Address::generate(&env);
+    assert_eq!(
+        client.try_set_rate_limit(&caller, &Some(TEST_RATE_LIMIT)),
+        Err(Ok(QuidError::NotInitialized))
+    );
+    assert_eq!(client.get_rate_limit(), None);
+}
+
+#[test]
+fn test_set_rate_limit_rejects_a_caller_naming_itself_admin() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    ensure_admin(&env, &client);
+
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_set_rate_limit(&attacker, &Some(TEST_RATE_LIMIT)),
+        Err(Ok(QuidError::Unauthorized))
+    );
+    assert_eq!(client.get_rate_limit(), None);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_set_rate_limit_naming_the_admin_still_needs_its_signature() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let admin = ensure_admin(&env, &client);
+
+    let attacker = Address::generate(&env);
+    let config = Some(TEST_RATE_LIMIT);
+    mock_auth_call(
+        &env,
+        &attacker,
+        &contract_id,
+        "set_rate_limit",
+        (&admin, config.clone()).into_val(&env),
+    );
+    client.set_rate_limit(&admin, &config);
+}
+
+#[test]
+fn test_set_rate_limit_succeeds_on_the_admins_signature_alone() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let admin = ensure_admin(&env, &client);
+
+    let config = Some(TEST_RATE_LIMIT);
+    mock_auth_call(
+        &env,
+        &admin,
+        &contract_id,
+        "set_rate_limit",
+        (&admin, config.clone()).into_val(&env),
+    );
+    client.set_rate_limit(&admin, &config);
+
+    assert_eq!(client.get_rate_limit(), config);
 }

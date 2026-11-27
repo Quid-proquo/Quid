@@ -36,6 +36,10 @@ Closes [#289](https://github.com/Quid-proquo/Quid/issues/289),
 | `get_moderation_registry()` | — | Current registry (`ModerationRegistryNotSet` when unwired) |
 | `set_reputation_contract(new_reputation)` | admin | Reputation registry to attest into |
 | `get_reputation_contract()` | — | Current registry (`ReputationNotSet` when unwired) |
+| `set_rate_limit(admin, config)` | admin | Set or clear (`None`) the submission rate limit. `admin` must be the stored admin |
+| `get_rate_limit()` | — | Current rate limit, if any |
+| `set_test_requirement(mission_id, registry)` | mission `owner` | Require a proof from `registry` before payout |
+| `set_stake_tiers(mission_id, tiers)` | mission `owner` | Reputation-scaled stake tiers |
 | `get_mission_count()` / `mission_exists(id)` | — | Read-only helpers |
 
 ## Mission expiry
@@ -86,19 +90,23 @@ attestation is actually written.
   never to the hunter and never to the caller, so a mission owner can confiscate
   spam but cannot redirect the pot.
 - **Config is gated behind one admin.** `set_treasury`, `set_fee_collector`,
-  `set_staking_pool`, `set_moderation_registry` and `set_reputation_contract`
-  all call `admin.require_auth()` on the address `initialize` stored, and fail
+  `set_staking_pool`, `set_moderation_registry`, `set_reputation_contract` and
+  `set_rate_limit` all call `admin.require_auth()` on the address `initialize` stored, and fail
   with `NotInitialized` before `initialize` has run. Only the admin can move a
   slot, whoever currently holds it. This replaces the old first-caller-wins
   rule, where anyone watching the network could claim a slot on a fresh
   deployment and point fees or slashed stakes at themselves.
+  `set_rate_limit` also takes an `admin` argument and rejects any other address
+  with `Unauthorized`; before this check, any address could pass itself and
+  change the limit. The per-mission setters (`set_test_requirement`,
+  `set_stake_tiers`) are authorized by the mission owner instead.
 - **`initialize` is the one remaining race.** Until it runs, whoever calls it
   first becomes the admin (it needs the new admin's own signature, so it cannot
   be handed to an address the caller does not control, but a front-runner can
   still make *themselves* the admin). Deploy and initialize in the same script
   and confirm with `get_admin`. Mission entrypoints do not depend on the admin.
 - **Admin state is instance storage, kept alive.** `initialize` and every
-  `set_*` extend the instance TTL (about 60 days), so an idle deployment does
+  admin setter extend the instance TTL (about 60 days), so an idle deployment does
   not lose its admin to archival.
 - **`expire_mission` is intentionally the one permissionless money path.** It
   cannot pay anyone but the mission's own owner, only refunds slots that were
@@ -147,9 +155,12 @@ attestation is actually written.
 | 23 | `MissionExpired` | Submission attempted after the deadline |
 | 24 | `MissionNotExpired` | `expire_mission` called before the deadline |
 | 25 | `ReputationNotSet` | Reputation registry read before it was configured |
-| 26 | `NotInitialized` | A `set_*` entrypoint or `get_admin` ran before `initialize` |
-| 27 | `AlreadyInitialized` | `initialize` was called a second time |
-| 28 | `Unauthorized` | Reserved. A non-admin caller currently fails in the host's auth check (`Error(Auth, InvalidAction)`), not with this code |
+| 26 | `ProofMissing` | Payout requires a verified proof and the hunter has none |
+| 27 | `InvalidStakeTiers` | Tier lengths differ or are empty, or rates increase |
+| 28 | `RateLimited` | Hunter reached the submission limit for the current window |
+| 29 | `NotInitialized` | An admin setter or `get_admin` ran before `initialize` |
+| 30 | `AlreadyInitialized` | `initialize` was called a second time |
+| 31 | `Unauthorized` | `set_rate_limit` was given an address that is not the admin. The other admin setters fail a non-admin in the host's auth check (`Error(Auth, InvalidAction)`) |
 
 Codes are append-only: `frontend/src/lib/errorMap.ts` keys on these numbers.
 
