@@ -5,6 +5,7 @@ import { MissionStatus, Prisma, SubmissionStatus } from '@prisma/client';
 import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SorobanRpcService } from '../soroban/soroban-rpc.service';
 
 export interface SubmissionStatusTransition {
   missionId: string;
@@ -23,11 +24,16 @@ type EventFields = Record<string, unknown>;
 export class IndexerService {
   private readonly logger = new Logger(IndexerService.name);
 
+  private readonly sorobanRpc: SorobanRpcService;
+
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
-  ) {}
+    sorobanRpc?: SorobanRpcService,
+  ) {
+    this.sorobanRpc = sorobanRpc ?? new SorobanRpcService(config);
+  }
 
   @Cron(CronExpression.EVERY_10_SECONDS)
   async pollEvents(): Promise<void> {
@@ -42,7 +48,6 @@ export class IndexerService {
     }
 
     try {
-      const server = new rpc.Server(rpcUrl);
       let state = await this.prisma.indexerState.upsert({
         where: { id: 1 },
         create: { id: 1, lastLedger: BigInt(0) },
@@ -55,7 +60,7 @@ export class IndexerService {
         const startLedger = this.toLedgerNumber(
           cursor ? state.lastLedger : state.lastLedger + BigInt(1),
         );
-        const page = await server.getEvents({
+        const page = await this.sorobanRpc.getEvents({
           startLedger: Math.max(FIRST_LEDGER, startLedger),
           filters: [{ type: 'contract', contractIds: [contractId] }],
           limit: PAGE_SIZE,

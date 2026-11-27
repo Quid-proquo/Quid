@@ -23,7 +23,10 @@ mod upgrade;
 
 use error::QuidError;
 use soroban_sdk::token;
-use types::{DataKey, Mission, MissionStatus, Submission, SubmissionStatus};
+use types::{
+    DataKey, HunterWindowRecord, Mission, MissionStatus, RateLimit, StakeTiers, Submission,
+    SubmissionStatus, TestRequirement,
+};
 
 /// `attestation_type` written on the reputation record a payout produces.
 const PAYOUT_ATTESTATION_TYPE: &str = "quid-payout";
@@ -126,6 +129,9 @@ pub trait FeeCollector {
     /// Fee owed on `gross_amount` at the vault's current rate.
     fn compute_fee(env: Env, gross_amount: i128) -> i128;
 
+    /// Fee owed for a specific token, applying tiers/caps when configured.
+    fn compute_fee_for(env: Env, token: Address, gross_amount: i128) -> i128;
+
     /// Pull an exact fee amount from `from` into the vault.
     fn deposit_fee(env: Env, from: Address, token: Address, amount: i128);
 }
@@ -184,6 +190,18 @@ pub trait ModerationRegistry {
     fn can_submit(env: Env, address: Address) -> bool;
 }
 
+/// Subset of `quid-proof-registry` used to gate payouts (SC-012).
+#[contractclient(name = "ProofRegistryClient")]
+pub trait ProofRegistry {
+    fn has_valid_proof(env: Env, mission_id: u64, hunter: Address) -> bool;
+}
+
+/// Score read used for stake tiers (SC-022). Missing profile treated as 0 by caller.
+#[contractclient(name = "ReputationScoreClient")]
+pub trait ReputationScore {
+    fn get_score(env: Env, subject: Address) -> u32;
+}
+
 #[contract]
 pub struct QuidStoreContract;
 
@@ -224,7 +242,7 @@ impl QuidStoreContract {
 
         // The protocol fee is charged on top of the escrow, so the full reward
         // pool stays available to hunters. Zero when no collector is configured.
-        let fee = Self::quote_protocol_fee(&env, total_needed)?;
+        let fee = Self::quote_protocol_fee(&env, &reward.reward_token, total_needed)?;
         let owner_debit = total_needed
             .checked_add(fee)
             .ok_or(QuidError::NegativeReward)?;
@@ -291,6 +309,10 @@ impl QuidStoreContract {
     }
 
     /// Get mission
+    pub fn get_mission_owner(env: Env, mission_id: u64) -> Result<Address, QuidError> {
+        Ok(Self::get_mission(env, mission_id)?.owner)
+    }
+
     pub fn get_mission(env: Env, mission_id: u64) -> Result<Mission, QuidError> {
         env.storage()
             .persistent()
@@ -310,7 +332,122 @@ impl QuidStoreContract {
             .ok_or(QuidError::SubmissionNotFound)
     }
 
-    /// Submit Feedback
+    /// SC-011/SC-012: require a valid proof in `registry` before payout.
+    pub fn set_test_requirement(
+        env: Env,
+        mission_id: u64,
+        registry: Address,
+    ) -> Result<(), QuidError> {
+        let mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+        let key = DataKey::MissionTestRequirement(mission_id);
+        env.storage()
+            .persistent()
+            .set(&key, &TestRequirement { registry });
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 100_000, 500_000);
+        Ok(())
+    }
+
+    /// SC-022: configure reputation-scaled stake tiers for a mission.
+    pub fn set_stake_tiers(env: Env, mission_id: u64, tiers: StakeTiers) -> Result<(), QuidError> {
+        let mission = Self::get_mission(env.clone(), mission_id)?;
+        mission.owner.require_auth();
+        if tiers.thresholds.len() != tiers.bps.len() || tiers.thresholds.is_empty() {
+            return Err(QuidError::InvalidStakeTiers);
+        }
+        for i in 1..tiers.bps.len() {
+            if tiers.bps.get(i).unwrap() > tiers.bps.get(i - 1).unwrap() {
+                return Err(QuidError::InvalidStakeTiers);
+            }
+        }
+        let key = DataKey::MissionStakeTiers(mission_id);
+        env.storage().persistent().set(&key, &tiers);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 100_000, 500_000);
+        Ok(())
+    }
+
+    /// Set protocol-wide submission rate limit (SC-021).
+    /// Admin authorization required.
+    pub fn set_rate_limit(env: Env, admin: Address, config: Option<RateLimit>) {
+        admin.require_auth();
+        let key = DataKey::SubmissionRateLimit;
+        if let Some(cfg) = config {
+            env.storage().instance().set(&key, &cfg);
+        } else {
+            env.storage().instance().remove(&key);
+        }
+    }
+
+    /// Get current protocol-wide submission rate limit (SC-021).
+    pub fn get_rate_limit(env: Env) -> Option<RateLimit> {
+        env.storage().instance().get(&DataKey::SubmissionRateLimit)
+    }
+
+    /// Check and record hunter submission under the rolling rate limit window (SC-021).
+    fn check_and_update_rate_limit(env: &Env, hunter: &Address) -> Result<(), QuidError> {
+        let rate_limit: Option<RateLimit> =
+            env.storage().instance().get(&DataKey::SubmissionRateLimit);
+
+        let Some(limit) = rate_limit else {
+            return Ok(());
+        };
+
+        let now = env.ledger().timestamp();
+        let key = DataKey::HunterWindow(hunter.clone());
+        let current_window: Option<HunterWindowRecord> = env.storage().temporary().get(&key);
+
+        let record = match current_window {
+            Some(w) if now < w.window_start.saturating_add(limit.window_secs) => {
+                if w.count >= limit.max {
+                    return Err(QuidError::RateLimited);
+                }
+                HunterWindowRecord {
+                    window_start: w.window_start,
+                    count: w.count.saturating_add(1),
+                }
+            }
+            _ => HunterWindowRecord {
+                window_start: now,
+                count: 1,
+            },
+        };
+
+        let ttl_ledgers = ((limit.window_secs / 5) + 1).max(1) as u32;
+        env.storage().temporary().set(&key, &record);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, ttl_ledgers, ttl_ledgers);
+
+        Ok(())
+    }
+
+    fn compute_tier_stake(env: &Env, mission_id: u64, hunter: &Address, base: i128) -> i128 {
+        let tiers: Option<StakeTiers> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MissionStakeTiers(mission_id));
+        let Some(tiers) = tiers else {
+            return base;
+        };
+        let score = if let Some(rep) = Self::reputation_contract(env) {
+            ReputationScoreClient::new(env, &rep).get_score(hunter)
+        } else {
+            0u32
+        };
+        let mut chosen_bps = tiers.bps.get(0).unwrap_or(10_000);
+        for i in 0..tiers.thresholds.len() {
+            let th = tiers.thresholds.get(i).unwrap();
+            if score >= th {
+                chosen_bps = tiers.bps.get(i).unwrap();
+            }
+        }
+        base.checked_mul(chosen_bps as i128).unwrap_or(base) / 10_000
+    }
+
     pub fn submit_feedback(
         env: Env,
         mission_id: u64,
@@ -335,6 +472,8 @@ impl QuidStoreContract {
         if Self::is_expired(&mission, env.ledger().timestamp()) {
             return Err(QuidError::MissionExpired);
         }
+
+        Self::check_and_update_rate_limit(&env, &hunter)?;
 
         if mission.status != MissionStatus::Open && mission.status != MissionStatus::Started {
             return Err(QuidError::MissionNotOpen);
@@ -362,21 +501,26 @@ impl QuidStoreContract {
             return Err(QuidError::InvalidAmount);
         }
 
+        let actual_stake = Self::compute_tier_stake(&env, mission_id, &hunter, stake_amount);
+        if actual_stake <= 0 {
+            return Err(QuidError::InvalidAmount);
+        }
+
         if let Some(pool) = Self::staking_pool(&env) {
             StakingPoolClient::new(&env, &pool).lock_for_mission(
                 &env.current_contract_address(),
                 &mission_id,
                 &hunter,
                 &stake_token,
-                &stake_amount,
+                &actual_stake,
             );
         } else {
             let token_client = token::Client::new(&env, &stake_token);
-            token_client.transfer(&hunter, env.current_contract_address(), &stake_amount);
+            token_client.transfer(&hunter, env.current_contract_address(), &actual_stake);
         }
 
         let stake_key = DataKey::HunterStake(mission_id, hunter.clone());
-        env.storage().persistent().set(&stake_key, &stake_amount);
+        env.storage().persistent().set(&stake_key, &actual_stake);
         env.storage()
             .persistent()
             .extend_ttl(&stake_key, 5184000, 5184000);
@@ -480,6 +624,19 @@ impl QuidStoreContract {
         }
         if submission.status != SubmissionStatus::Pending {
             return Err(QuidError::NotPending);
+        }
+
+        // SC-012: if a test requirement is set, require a valid proof before payout.
+        if let Some(req) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, TestRequirement>(&DataKey::MissionTestRequirement(mission_id))
+        {
+            let ok =
+                ProofRegistryClient::new(&env, &req.registry).has_valid_proof(&mission_id, &hunter);
+            if !ok {
+                return Err(QuidError::ProofMissing);
+            }
         }
 
         let token_client = token::Client::new(&env, &mission.reward_token);
@@ -1007,7 +1164,11 @@ impl QuidStoreContract {
     ///
     /// Missions created before a collector is set stay fee-free, so wiring the
     /// vault up is a non-breaking change for existing deployments.
-    fn quote_protocol_fee(env: &Env, gross_amount: i128) -> Result<i128, QuidError> {
+    fn quote_protocol_fee(
+        env: &Env,
+        token: &Address,
+        gross_amount: i128,
+    ) -> Result<i128, QuidError> {
         let Some(collector) = env
             .storage()
             .instance()
@@ -1016,7 +1177,7 @@ impl QuidStoreContract {
             return Ok(0);
         };
 
-        let fee = FeeCollectorClient::new(env, &collector).compute_fee(&gross_amount);
+        let fee = FeeCollectorClient::new(env, &collector).compute_fee_for(token, &gross_amount);
         if fee < 0 || fee > gross_amount {
             return Err(QuidError::InvalidAmount);
         }

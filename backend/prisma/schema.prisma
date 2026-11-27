@@ -152,10 +152,12 @@ model Submission {
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
-  mission  Mission   @relation(fields: [missionId], references: [id])
-  hunter   User      @relation(fields: [hunterAddress], references: [address])
-  proofs   Proof[]
-  disputes Dispute[]
+  mission             Mission              @relation(fields: [missionId], references: [id])
+  hunter              User                 @relation(fields: [hunterAddress], references: [address])
+  proofs              Proof[]
+  disputes            Dispute[]
+  duplicateCandidates DuplicateCandidate[] @relation("SubmissionDuplicates")
+  duplicateOf         DuplicateCandidate[] @relation("SubmissionDuplicateOf")
 
   @@unique([missionId, hunterAddress])
   @@index([hunterAddress])
@@ -210,6 +212,54 @@ model NotificationDelivery {
   @@unique([notificationId, channel])
   @@index([status, createdAt])
   @@map("notification_deliveries")
+}
+
+/// BE-088: cached SEP-24 anchor discovery
+model Anchor {
+  domain        String    @id @map("domain")
+  name          String?   @map("name")
+  countries     String[]  @map("countries")
+  assets        Json?     @map("assets")
+  info          Json?     @map("info")
+  lastCheckedAt DateTime? @map("last_checked_at")
+  healthy       Boolean   @default(false) @map("healthy")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("anchors")
+}
+
+/// BE-085: creator webhook subscriptions
+model WebhookSubscription {
+  id           String   @id @default(uuid()) @map("id")
+  ownerAddress String   @map("owner_address")
+  url          String   @map("url")
+  events       String[] @map("events")
+  missionId    String?  @map("mission_id")
+  secretHash   String   @map("secret_hash")
+  active       Boolean  @default(true) @map("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerAddress])
+  @@map("webhook_subscriptions")
+}
+
+/// BE-065: duplicate report candidates
+model DuplicateCandidate {
+  id            String   @id @default(uuid()) @map("id")
+  submissionId  String   @map("submission_id")
+  candidateOfId String   @map("candidate_of_id")
+  score         Float    @map("score")
+  kind          String   @map("kind")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  submission  Submission @relation("SubmissionDuplicates", fields: [submissionId], references: [id], onDelete: Cascade)
+  candidateOf Submission @relation("SubmissionDuplicateOf", fields: [candidateOfId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([candidateOfId])
+  @@map("duplicate_candidates")
 }
 
 model Proof {

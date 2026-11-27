@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   MissionStatus,
@@ -18,6 +19,7 @@ import {
   ChainSubmissionStatus,
   fromChainStatus,
 } from './submission-status';
+import { DuplicateDetectorService } from '../reports/duplicate-detector.service';
 
 /** Mission statuses in which `quid-store::submit_feedback` accepts work. */
 const ACCEPTING_SUBMISSIONS: readonly MissionStatus[] = [
@@ -54,7 +56,10 @@ function isUniqueViolation(err: unknown): boolean {
 export class SubmissionSyncService {
   private readonly logger = new Logger(SubmissionSyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly duplicateDetector?: DuplicateDetectorService,
+  ) {}
 
   async recordSubmission(
     missionId: string,
@@ -87,7 +92,7 @@ export class SubmissionSyncService {
     }
 
     try {
-      return await this.prisma.submission.create({
+      const created = await this.prisma.submission.create({
         data: {
           missionId,
           hunterAddress,
@@ -97,6 +102,8 @@ export class SubmissionSyncService {
           chainConfirmed: false,
         },
       });
+      await this.duplicateDetector?.detectForSubmission(created.id).catch(() => undefined);
+      return created;
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
 
@@ -123,7 +130,7 @@ export class SubmissionSyncService {
     let current = await this.findForHunter(missionId, hunterAddress);
     if (!current) {
       try {
-        return await this.prisma.submission.create({
+        const created = await this.prisma.submission.create({
           data: {
             missionId,
             hunterAddress,
@@ -132,6 +139,8 @@ export class SubmissionSyncService {
             chainConfirmed: true,
           },
         });
+        await this.duplicateDetector?.detectForSubmission(created.id).catch(() => undefined);
+        return created;
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
         current = await this.findForHunter(missionId, hunterAddress);

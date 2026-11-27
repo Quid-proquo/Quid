@@ -1,15 +1,12 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { WebhooksController } from './webhooks.controller';
+import { WebhooksService } from './webhooks.service';
 
-/**
- * Extension point for webhook subscriptions and inbound webhook handling.
- *
- * Registered in AppModule but intentionally empty. Outbound alert delivery
- * already lives in notifications/webhook.channel.ts; this module is for
- * user-managed subscriptions, signing secrets and inbound receivers. See
- * ./README.md for scope.
- */
 @Module({
-  providers: [],
-  exports: [],
+  imports: [AuthModule],
+  controllers: [WebhooksController],
+  providers: [WebhooksService],
+  exports: [WebhooksService],
 })
 export class WebhooksModule {}

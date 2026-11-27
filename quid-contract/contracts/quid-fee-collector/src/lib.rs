@@ -5,7 +5,7 @@ mod error;
 mod types;
 
 use error::FeeError;
-use types::{DataKey, TokenBalance};
+use types::{DataKey, FeeTier, TokenBalance};
 
 /// 100% expressed in basis points.
 pub const MAX_FEE_BPS: u32 = 10_000;
@@ -110,6 +110,93 @@ impl QuidFeeCollectorContract {
             .ok_or(FeeError::Overflow)
     }
 
+    /// Set tiered fee schedule. Tiers must be sorted ascending by min_gross, max 8.
+    pub fn set_fee_tiers(env: Env, caller: Address, tiers: Vec<FeeTier>) -> Result<(), FeeError> {
+        Self::require_admin(&env, &caller)?;
+        if tiers.len() > 8 {
+            return Err(FeeError::TooManyTiers);
+        }
+        let mut prev_min: Option<i128> = None;
+        for t in tiers.iter() {
+            if t.bps > MAX_FEE_BPS || t.min_gross < 0 {
+                return Err(FeeError::InvalidTiers);
+            }
+            if let Some(prev) = prev_min {
+                if t.min_gross <= prev {
+                    return Err(FeeError::InvalidTiers);
+                }
+            }
+            prev_min = Some(t.min_gross);
+        }
+        env.storage().instance().set(&DataKey::FeeTiers, &tiers);
+        Ok(())
+    }
+
+    pub fn get_fee_tiers(env: Env) -> Vec<FeeTier> {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeTiers)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Set a per-token absolute fee cap.
+    pub fn set_fee_cap(
+        env: Env,
+        caller: Address,
+        token: Address,
+        cap: i128,
+    ) -> Result<(), FeeError> {
+        Self::require_admin(&env, &caller)?;
+        if cap < 0 {
+            return Err(FeeError::InvalidAmount);
+        }
+        env.storage().instance().set(&DataKey::FeeCap(token), &cap);
+        Ok(())
+    }
+
+    pub fn get_fee_cap(env: Env, token: Address) -> Option<i128> {
+        env.storage().instance().get(&DataKey::FeeCap(token))
+    }
+
+    /// Fee owed for a token, applying tiers (if configured) then per-token cap.
+    pub fn compute_fee_for(env: Env, token: Address, gross_amount: i128) -> Result<i128, FeeError> {
+        if gross_amount < 0 {
+            return Err(FeeError::InvalidAmount);
+        }
+        let tiers = Self::get_fee_tiers(env.clone());
+        let fee_bps = if !tiers.is_empty() {
+            let mut selected: u32 = Self::get_fee_bps(env.clone());
+            for t in tiers.iter() {
+                if gross_amount >= t.min_gross {
+                    selected = t.bps;
+                }
+            }
+            selected as i128
+        } else {
+            Self::get_fee_bps(env.clone()) as i128
+        };
+
+        let mut fee = gross_amount
+            .checked_mul(fee_bps)
+            .map(|scaled| scaled / MAX_FEE_BPS as i128)
+            .ok_or(FeeError::Overflow)?;
+
+        if let Some(cap) = Self::get_fee_cap(env, token) {
+            if fee > cap {
+                fee = cap;
+            }
+        }
+
+        if fee > gross_amount {
+            fee = gross_amount;
+        }
+        if fee < 0 {
+            return Err(FeeError::Overflow);
+        }
+
+        Ok(fee)
+    }
+
     // -------------------------------------------------------------------------
     // Collection
     // -------------------------------------------------------------------------
@@ -125,7 +212,7 @@ impl QuidFeeCollectorContract {
         token: Address,
         gross_amount: i128,
     ) -> Result<i128, FeeError> {
-        let fee = Self::compute_fee(env.clone(), gross_amount)?;
+        let fee = Self::compute_fee_for(env.clone(), token.clone(), gross_amount)?;
 
         if fee > 0 {
             Self::deposit_fee(env, from, token, fee)?;

@@ -10,4 +10,6 @@ pub enum FeeError {
     InvalidAmount = 5,
     InsufficientBalance = 6,
     Overflow = 7,
+    InvalidTiers = 8,
+    TooManyTiers = 9,
 }

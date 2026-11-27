@@ -41,4 +41,10 @@ pub enum QuidError {
     /// caller that is not the admin fails earlier, in the host's auth check
     /// (`Error(Auth, InvalidAction)`), so this code is not returned yet.
     Unauthorized = 28,
+    /// Mission requires a verified proof and hunter has none.
+    ProofMissing = 26,
+    /// Stake tier config invalid (length mismatch or bps not descending).
+    InvalidStakeTiers = 27,
+    /// Rate limit reached for hunter within rolling window (SC-021).
+    RateLimited = 28,
 }

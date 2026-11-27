@@ -324,3 +324,53 @@ fn test_withdraw_cannot_drain_a_token_via_another_tokens_balance() {
         Err(Ok(FeeError::InsufficientBalance))
     );
 }
+
+#[test]
+fn test_unsorted_tiers_rejected() {
+    let (env, client, admin, _) = setup();
+    let tiers = soroban_sdk::vec![
+        &env,
+        crate::types::FeeTier {
+            min_gross: 100,
+            bps: 100
+        },
+        crate::types::FeeTier {
+            min_gross: 50,
+            bps: 200
+        },
+    ];
+    assert_eq!(
+        client.try_set_fee_tiers(&admin, &tiers),
+        Err(Ok(FeeError::InvalidTiers))
+    );
+}
+
+#[test]
+fn test_tiered_fee_and_cap_never_exceed_cap_or_gross() {
+    let (env, client, admin, token) = setup();
+    let tiers = soroban_sdk::vec![
+        &env,
+        crate::types::FeeTier {
+            min_gross: 0,
+            bps: 500
+        },
+        crate::types::FeeTier {
+            min_gross: 1_000,
+            bps: 200
+        },
+        crate::types::FeeTier {
+            min_gross: 10_000,
+            bps: 100
+        },
+    ];
+    client.set_fee_tiers(&admin, &tiers);
+    client.set_fee_cap(&admin, &token, &150);
+
+    for i in 0..1_000i128 {
+        let gross = i * 37;
+        let fee = client.compute_fee_for(&token, &gross);
+        assert!(fee <= gross);
+        assert!(fee <= 150);
+        assert!(fee >= 0);
+    }
+}

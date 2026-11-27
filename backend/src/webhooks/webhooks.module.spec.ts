@@ -5,7 +5,9 @@ describe('WebhooksModule', () => {
   it('compiles on its own', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [WebhooksModule],
-    }).compile();
+    })
+      .useMocker(() => ({}))
+      .compile();
 
     expect(moduleRef.get(WebhooksModule)).toBeInstanceOf(WebhooksModule);
   });
