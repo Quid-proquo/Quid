@@ -85,6 +85,9 @@ pub enum DataKey {
     ModerationRegistry,
     /// Optional reputation registry (`quid-reputation`) attested on payout.
     ReputationContract,
+    /// The contract admin set once by `initialize` (instance storage). Gates
+    /// every `set_*` config entrypoint.
+    Admin,
     /// Optional proof registry for Proof-of-Test gating (SC-012).
     ProofRegistry,
     /// Per-mission test requirement pointing at a proof registry.

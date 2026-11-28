@@ -65,7 +65,8 @@ The wiring is opt-in: with no collector configured, `create_mission` behaves
 exactly as before and charges nothing.
 
 ```bash
-# point the store at the vault (see quid-contract/README.md for deploy steps)
+# point the store at the vault (see quid-contract/README.md for deploy steps).
+# Admin-gated: --source must be the store admin set by the store's `initialize`.
 stellar contract invoke --id <STORE_ID> --source alice --network testnet \
   -- set_fee_collector --new_collector <FEE_COLLECTOR_ID>
 ```

@@ -31,6 +31,15 @@ use types::{
 /// `attestation_type` written on the reputation record a payout produces.
 const PAYOUT_ATTESTATION_TYPE: &str = "quid-payout";
 
+/// Instance storage (the admin, the linked-contract slots, the mission counter)
+/// is kept alive for this many ledgers (~60 days at 5s) each time the admin
+/// path runs, so an idle deployment cannot lose its admin to archival.
+const INSTANCE_TTL_LEDGERS: u32 = 5_184_000;
+
+/// Persistent per-record entries (missions, submissions, stakes) are kept alive
+/// for this many ledgers (~60 days) every time they are written.
+const RECORD_TTL_LEDGERS: u32 = 5_184_000;
+
 #[contractevent(topics = ["mission", "create"])]
 pub struct MissionCreateEvent {
     pub mission_id: u64,
@@ -361,16 +370,25 @@ impl QuidStoreContract {
         Ok(())
     }
 
-    /// Set protocol-wide submission rate limit (SC-021).
-    /// Admin authorization required.
-    pub fn set_rate_limit(env: Env, admin: Address, config: Option<RateLimit>) {
-        admin.require_auth();
+    /// Set or clear (`None`) the protocol-wide submission rate limit (SC-021).
+    /// Admin only: `admin` must be the address `initialize` stored and must
+    /// authorize the call. Any other address fails with `Unauthorized`.
+    pub fn set_rate_limit(
+        env: Env,
+        admin: Address,
+        config: Option<RateLimit>,
+    ) -> Result<(), QuidError> {
+        if admin != Self::get_admin(env.clone())? {
+            return Err(QuidError::Unauthorized);
+        }
+        Self::require_admin(&env)?;
         let key = DataKey::SubmissionRateLimit;
         if let Some(cfg) = config {
             env.storage().instance().set(&key, &cfg);
         } else {
             env.storage().instance().remove(&key);
         }
+        Ok(())
     }
 
     /// Get current protocol-wide submission rate limit (SC-021).
@@ -646,6 +664,9 @@ impl QuidStoreContract {
 
         submission.status = SubmissionStatus::Paid;
         env.storage().persistent().set(&key, &submission);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, RECORD_TTL_LEDGERS, RECORD_TTL_LEDGERS);
 
         mission.participants_count += 1;
         if mission.max_participants > 0 && mission.participants_count >= mission.max_participants {
@@ -654,6 +675,7 @@ impl QuidStoreContract {
         env.storage()
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
+        Self::extend_mission_ttl(&env, mission_id);
 
         PayoutDoneEvent {
             mission_id,
@@ -752,6 +774,7 @@ impl QuidStoreContract {
         env.storage()
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
+        Self::extend_mission_ttl(&env, mission_id);
 
         MissionCancelEvent { mission_id }.publish(&env);
 
@@ -842,6 +865,7 @@ impl QuidStoreContract {
         env.storage()
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
+        Self::extend_mission_ttl(&env, mission_id);
 
         MissionExpiredEvent {
             mission_id,
@@ -865,6 +889,7 @@ impl QuidStoreContract {
         env.storage()
             .persistent()
             .set(&DataKey::Mission(id), &mission);
+        Self::extend_mission_ttl(&env, id);
 
         MissionPauseEvent { mission_id: id }.publish(&env);
         Ok(())
@@ -881,6 +906,7 @@ impl QuidStoreContract {
         env.storage()
             .persistent()
             .set(&DataKey::Mission(mission_id), &mission);
+        Self::extend_mission_ttl(&env, mission_id);
         Ok(())
     }
 
@@ -897,17 +923,77 @@ impl QuidStoreContract {
         Self::slash_stake(&env, mission_id, hunter, stake_token)
     }
 
-    /// Configure the reusable hunter stake pool. The pool must separately
-    /// allow-list this store with `set_locker` before pooled submissions work.
-    pub fn set_staking_pool(env: Env, new_pool: Address) {
-        if let Some(current) = Self::staking_pool(&env) {
-            current.require_auth();
-        } else {
-            new_pool.require_auth();
+    /// One-time setup: record the admin that may configure the linked contracts.
+    ///
+    /// Call this in the same script that deploys the store, before anything
+    /// else. Until it runs there is no admin and every `set_*` entrypoint fails
+    /// with `NotInitialized`; whoever calls `initialize` first becomes the admin,
+    /// so deploy and initialize back to back and confirm with `get_admin`.
+    ///
+    /// `admin` must authorize the call, so the slot can only ever be given to an
+    /// address whose key the caller controls (never a typo or someone else's
+    /// address). A second call fails with `AlreadyInitialized` and leaves the
+    /// admin untouched.
+    ///
+    /// Mission entrypoints do not need an admin and work before this runs.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), QuidError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(QuidError::AlreadyInitialized);
         }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        Self::bump_instance(&env);
+        Ok(())
+    }
+
+    /// The configured admin, or `NotInitialized` before `initialize` has run.
+    pub fn get_admin(env: Env) -> Result<Address, QuidError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(QuidError::NotInitialized)
+    }
+
+    /// Load the admin and require its authorization. Fails with
+    /// `NotInitialized` (before asking for any signature) when no admin exists.
+    fn require_admin(env: &Env) -> Result<Address, QuidError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(QuidError::NotInitialized)?;
+        admin.require_auth();
+        Self::bump_instance(env);
+        Ok(admin)
+    }
+
+    fn bump_instance(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
+    }
+
+    /// Top a mission record back up after it was rewritten. A `set` on an
+    /// existing entry does not touch its TTL, so without this a mission that is
+    /// only ever paused, cancelled or paid out could be archived while it is
+    /// still live.
+    fn extend_mission_ttl(env: &Env, mission_id: u64) {
+        env.storage().persistent().extend_ttl(
+            &DataKey::Mission(mission_id),
+            RECORD_TTL_LEDGERS,
+            RECORD_TTL_LEDGERS,
+        );
+    }
+
+    /// Configure the reusable hunter stake pool. Admin only. The pool must
+    /// separately allow-list this store with `set_locker` before pooled
+    /// submissions work.
+    pub fn set_staking_pool(env: Env, new_pool: Address) -> Result<(), QuidError> {
+        Self::require_admin(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::StakingPool, &new_pool);
+        Ok(())
     }
 
     pub fn get_staking_pool(env: Env) -> Result<Address, QuidError> {
@@ -965,20 +1051,13 @@ impl QuidStoreContract {
         env.storage().instance().get(&DataKey::StakingPool)
     }
 
-    /// Point the store at a `quid-moderation-registry` (#305).
-    ///
-    /// Same handover rule as `set_fee_collector`: the first caller must
-    /// authorize as the new registry, and afterwards only the current
-    /// registry can move the slot.
-    pub fn set_moderation_registry(env: Env, new_registry: Address) {
-        if let Some(current) = Self::moderation_registry(&env) {
-            current.require_auth();
-        } else {
-            new_registry.require_auth();
-        }
+    /// Point the store at a `quid-moderation-registry` (#305). Admin only.
+    pub fn set_moderation_registry(env: Env, new_registry: Address) -> Result<(), QuidError> {
+        Self::require_admin(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::ModerationRegistry, &new_registry);
+        Ok(())
     }
 
     pub fn get_moderation_registry(env: Env) -> Result<Address, QuidError> {
@@ -989,44 +1068,22 @@ impl QuidStoreContract {
         env.storage().instance().get(&DataKey::ModerationRegistry)
     }
 
-    /// Set the protocol treasury address. Must be called by the treasury itself.
-    pub fn set_treasury(env: Env, new_treasury: Address) {
-        // If a treasury is already set, only the current treasury may update it.
-        if let Some(current_treasury) = env
-            .storage()
-            .instance()
-            .get::<_, Address>(&DataKey::Treasury)
-        {
-            current_treasury.require_auth();
-        } else {
-            // Initial set: require authorization from the new treasury address.
-            new_treasury.require_auth();
-        }
-
+    /// Set the protocol treasury address, the slash destination. Admin only.
+    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), QuidError> {
+        Self::require_admin(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::Treasury, &new_treasury);
+        Ok(())
     }
 
-    /// Point the store at a `quid-fee-collector` vault.
-    ///
-    /// Follows the same handover rule as `set_treasury`: the first caller to
-    /// claim the slot must authorize as the new collector, and afterwards only
-    /// the current collector can move it.
-    pub fn set_fee_collector(env: Env, new_collector: Address) {
-        if let Some(current) = env
-            .storage()
-            .instance()
-            .get::<_, Address>(&DataKey::FeeCollector)
-        {
-            current.require_auth();
-        } else {
-            new_collector.require_auth();
-        }
-
+    /// Point the store at a `quid-fee-collector` vault. Admin only.
+    pub fn set_fee_collector(env: Env, new_collector: Address) -> Result<(), QuidError> {
+        Self::require_admin(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_collector);
+        Ok(())
     }
 
     /// Get the configured protocol fee vault.
@@ -1038,21 +1095,13 @@ impl QuidStoreContract {
     }
 
     /// Point the store at a `quid-reputation` registry so a settled payout
-    /// issues a `quid-payout` attestation for the hunter.
-    ///
-    /// Same handover rule as `set_treasury` / `set_fee_collector`: the first
-    /// caller to claim the slot must authorize as the new registry, and after
-    /// that only the current registry can move it.
-    pub fn set_reputation_contract(env: Env, new_reputation: Address) {
-        if let Some(current) = Self::reputation_contract(&env) {
-            current.require_auth();
-        } else {
-            new_reputation.require_auth();
-        }
-
+    /// issues a `quid-payout` attestation for the hunter. Admin only.
+    pub fn set_reputation_contract(env: Env, new_reputation: Address) -> Result<(), QuidError> {
+        Self::require_admin(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::ReputationContract, &new_reputation);
+        Ok(())
     }
 
     /// Get the configured reputation registry.

@@ -29,6 +29,20 @@ fn mint_tokens_for_hunter(env: &Env, token_address: &Address, hunter: &Address, 
     token_admin_client.mint(hunter, &amount);
 }
 
+/// Give the store an admin if it does not have one yet, and return it. Every
+/// `set_*` entrypoint is admin-gated (#393), so tests that wire a collaborator
+/// call this first. Safe to call more than once in the same env.
+fn ensure_admin(env: &Env, client: &QuidStoreContractClient) -> Address {
+    match client.try_get_admin() {
+        Ok(Ok(admin)) => admin,
+        _ => {
+            let admin = Address::generate(env);
+            client.initialize(&admin);
+            admin
+        }
+    }
+}
+
 #[test]
 fn test_happy_path_create_submit_payout() {
     let (env, contract_id, owner, token_address) = setup_test_env();
@@ -927,6 +941,7 @@ fn test_set_and_get_treasury() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
 
     let stored = client.get_treasury();
@@ -948,6 +963,7 @@ fn test_slash_stake_sends_to_treasury() {
     let token_client = TokenClient::new(&env, &token_address);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
 
     let hunter = Address::generate(&env);
@@ -999,6 +1015,7 @@ fn test_slash_stake_not_found() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
 
     let hunter = Address::generate(&env);
@@ -1072,6 +1089,7 @@ fn test_slash_stake_removes_storage_key() {
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
 
     let hunter = Address::generate(&env);
@@ -1212,6 +1230,7 @@ fn test_refund_stake_no_stake_exists() {
 
     // Set treasury and slash the stake (removes it from storage)
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
     client.slash_hunter_stake(&mission_id, &hunter, &token_address);
 
@@ -1801,7 +1820,9 @@ fn setup_fee_collector<'a>(
     let fee_admin = Address::generate(env);
     collector.initialize(&fee_admin, &fee_bps);
 
-    QuidStoreContractClient::new(env, store_id).set_fee_collector(&collector_id);
+    let store = QuidStoreContractClient::new(env, store_id);
+    ensure_admin(env, &store);
+    store.set_fee_collector(&collector_id);
 
     (collector, fee_admin)
 }
@@ -2004,6 +2025,7 @@ fn setup_claimed_treasury_mission() -> (Env, Address, Address, Address, u64) {
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
     let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 5);
 
@@ -2034,63 +2056,42 @@ fn test_slash_hunter_stake_requires_the_mission_owner() {
 
 #[test]
 #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
-fn test_set_treasury_claims_the_slot_under_the_new_treasury_signature() {
+fn test_previous_treasury_cannot_move_the_slot_any_more() {
     let (env, contract_id, _owner, _token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
-
-    // The very first claim has to be signed by the treasury being installed:
-    // otherwise anyone could front-run the slot.
-    stop_mocking_auths(&env);
-    client.set_treasury(&Address::generate(&env));
-}
-
-#[test]
-fn test_set_treasury_first_claim_succeeds_with_the_new_treasury_signature() {
-    let (env, contract_id, _owner, _token_address) = setup_test_env();
-    let client = QuidStoreContractClient::new(&env, &contract_id);
+    ensure_admin(&env, &client);
 
     let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
+
+    // The old rule let the current holder hand the slot over. Now only the admin
+    // moves it, so the treasury signing for itself must not be honored.
+    let successor = Address::generate(&env);
     mock_auth_call(
         &env,
         &treasury,
         &contract_id,
         "set_treasury",
-        (&treasury,).into_val(&env),
+        (&successor,).into_val(&env),
     );
-    client.set_treasury(&treasury);
+    client.set_treasury(&successor);
+}
 
+#[test]
+fn test_admin_can_repoint_a_slot_without_the_old_holder() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let admin = ensure_admin(&env, &client);
+
+    let treasury = Address::generate(&env);
+    client.set_treasury(&treasury);
     assert_eq!(client.get_treasury(), treasury);
-}
 
-#[test]
-#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
-fn test_set_treasury_rejects_a_stranger_once_the_slot_is_claimed() {
-    let (env, contract_id, _owner, _token_address) = setup_test_env();
-    let client = QuidStoreContractClient::new(&env, &contract_id);
-
-    let treasury = Address::generate(&env);
-    client.set_treasury(&treasury);
-
-    // The attacker signs for itself, but only the *current* treasury may move
-    // the slot, so this must not be honored.
-    let attacker = Address::generate(&env);
-    stop_mocking_auths(&env);
-    client.set_treasury(&attacker);
-}
-
-#[test]
-fn test_treasury_handover_leaves_the_new_address_in_place() {
-    let (env, contract_id, _owner, _token_address) = setup_test_env();
-    let client = QuidStoreContractClient::new(&env, &contract_id);
-
-    let treasury = Address::generate(&env);
-    client.set_treasury(&treasury);
-
-    // The current treasury hands the slot over to a successor.
+    // Neither the old nor the new treasury signs: the admin alone is enough.
     let successor = Address::generate(&env);
     mock_auth_call(
         &env,
-        &treasury,
+        &admin,
         &contract_id,
         "set_treasury",
         (&successor,).into_val(&env),
@@ -2107,6 +2108,7 @@ fn test_slash_stake_pays_the_configured_treasury_and_nobody_else() {
     let token_client = TokenClient::new(&env, &token_address);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
 
     let hunter = Address::generate(&env);
@@ -2155,7 +2157,9 @@ fn setup_reputation_registry<'a>(
     let admin = Address::generate(env);
     reputation.initialize(&admin);
 
-    QuidStoreContractClient::new(env, store_id).set_reputation_contract(&reputation_id);
+    let store = QuidStoreContractClient::new(env, store_id);
+    ensure_admin(env, &store);
+    store.set_reputation_contract(&reputation_id);
 
     (reputation, admin)
 }
@@ -2259,7 +2263,7 @@ fn test_every_payout_gets_its_own_attestation() {
 }
 
 #[test]
-fn test_reputation_slot_handover_lets_the_new_registry_take_over() {
+fn test_reputation_slot_can_be_repointed_by_the_admin() {
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
 
@@ -2269,6 +2273,7 @@ fn test_reputation_slot_handover_lets_the_new_registry_take_over() {
     let second = QuidReputationContractClient::new(&env, &second_id);
     second.initialize(&Address::generate(&env));
 
+    ensure_admin(&env, &client);
     client.set_reputation_contract(&first_id);
     client.set_reputation_contract(&second_id);
     assert_eq!(client.get_reputation_contract(), second_id);
@@ -2548,7 +2553,9 @@ fn setup_staking_pool<'a>(
     pool.initialize(&admin, &treasury);
     pool.set_locker(&admin, store_id, &true);
 
-    QuidStoreContractClient::new(env, store_id).set_staking_pool(&pool_id);
+    let store = QuidStoreContractClient::new(env, store_id);
+    ensure_admin(env, &store);
+    store.set_staking_pool(&pool_id);
 
     (pool, treasury)
 }
@@ -2679,6 +2686,7 @@ fn test_reject_submission_after_slash_refunds_nothing() {
     let token_client = TokenClient::new(&env, &token_address);
 
     let treasury = Address::generate(&env);
+    ensure_admin(&env, &client);
     client.set_treasury(&treasury);
 
     let hunter = Address::generate(&env);
@@ -2897,6 +2905,398 @@ fn test_reject_submission_requires_owner_auth() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Admin and initialize (SC-001, #393)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_initialize_sets_the_admin() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_get_admin_before_initialize_is_not_initialized() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.try_get_admin(), Err(Ok(QuidError::NotInitialized)));
+}
+
+#[test]
+fn test_initialize_twice_returns_already_initialized() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_initialize(&attacker),
+        Err(Ok(QuidError::AlreadyInitialized))
+    );
+    // The failed second call must not have replaced the admin.
+    assert_eq!(client.get_admin(), admin);
+    // Nor the same admin calling again.
+    assert_eq!(
+        client.try_initialize(&admin),
+        Err(Ok(QuidError::AlreadyInitialized))
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_initialize_requires_the_new_admins_signature() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // Nobody signs, so an admin cannot be assigned to an address whose key the
+    // caller does not control.
+    stop_mocking_auths(&env);
+    client.initialize(&Address::generate(&env));
+}
+
+#[test]
+fn test_initialize_succeeds_on_the_admins_signature_alone() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    mock_auth_call(
+        &env,
+        &admin,
+        &contract_id,
+        "initialize",
+        (&admin,).into_val(&env),
+    );
+    client.initialize(&admin);
+
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_initialize_extends_the_instance_ttl_and_admin_calls_keep_it_alive() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let ttl = || env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+
+    client.initialize(&Address::generate(&env));
+    assert!(ttl() >= INSTANCE_TTL_LEDGERS);
+
+    // Let a large part of the lifetime pass, then do admin work: it tops the
+    // instance entry (and so the admin) back up.
+    env.ledger()
+        .with_mut(|ledger| ledger.sequence_number += 3_000_000);
+    assert!(ttl() < INSTANCE_TTL_LEDGERS);
+    client.set_treasury(&Address::generate(&env));
+    assert!(ttl() >= INSTANCE_TTL_LEDGERS);
+}
+
+#[test]
+fn test_missions_work_without_an_admin() {
+    let (env, contract_id, owner, token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    // The whole mission lifecycle needs no initialize and no linked contract.
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 2);
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmNoAdmin"),
+        &token_address,
+        &10,
+    );
+    client.payout_participant(&mission_id, &hunter);
+
+    assert_eq!(client.try_get_admin(), Err(Ok(QuidError::NotInitialized)));
+}
+
+#[test]
+fn test_existing_error_codes_keep_their_numbers() {
+    // frontend/src/lib/errorMap.ts is keyed by these numbers, so they must never
+    // be renumbered. New codes are only ever appended.
+    let expected: [(QuidError, u32); 31] = [
+        (QuidError::MissionNotFound, 1),
+        (QuidError::MissionClosed, 2),
+        (QuidError::MissionFull, 3),
+        (QuidError::AlreadySubmitted, 4),
+        (QuidError::InsufficientFunds, 5),
+        (QuidError::NotAuthorized, 6),
+        (QuidError::NegativeReward, 7),
+        (QuidError::InvalidState, 8),
+        (QuidError::AlreadyPaid, 9),
+        (QuidError::MissionNotOpen, 10),
+        (QuidError::SubmissionNotFound, 11),
+        (QuidError::NotPending, 12),
+        (QuidError::InvalidAmount, 13),
+        (QuidError::TreasuryNotSet, 14),
+        (QuidError::StakeNotFound, 15),
+        (QuidError::InsufficientAssetBalance, 16),
+        (QuidError::FeeCollectorNotSet, 17),
+        (QuidError::StakingPoolNotSet, 18),
+        (QuidError::HunterBanned, 19),
+        (QuidError::ModerationRegistryNotSet, 20),
+        (QuidError::AlreadyRejected, 21),
+        (QuidError::ExpiryInThePast, 22),
+        (QuidError::MissionExpired, 23),
+        (QuidError::MissionNotExpired, 24),
+        (QuidError::ReputationNotSet, 25),
+        (QuidError::ProofMissing, 26),
+        (QuidError::InvalidStakeTiers, 27),
+        (QuidError::RateLimited, 28),
+        (QuidError::NotInitialized, 29),
+        (QuidError::AlreadyInitialized, 30),
+        (QuidError::Unauthorized, 31),
+    ];
+    for (error, code) in expected {
+        assert_eq!(error as u32, code, "{error:?} was renumbered");
+    }
+}
+
+/// For one config setter: a non-admin caller fails, the setter reports
+/// `NotInitialized` before an admin exists, and the admin's signature alone is
+/// enough (the linked contract is never asked to authorize).
+macro_rules! admin_gated_setter_tests {
+    (
+        $setter:ident, $try_setter:ident, $getter:ident, $fn_name:literal,
+        $non_admin:ident, $not_initialized:ident, $admin_alone:ident
+    ) => {
+        #[test]
+        #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+        fn $non_admin() {
+            let (env, contract_id, _owner, _token_address) = setup_test_env();
+            let client = QuidStoreContractClient::new(&env, &contract_id);
+            ensure_admin(&env, &client);
+
+            // The caller signs for itself and for exactly this call, which is
+            // all a front-runner can do. Only the admin may configure the store.
+            let target = Address::generate(&env);
+            let attacker = Address::generate(&env);
+            mock_auth_call(
+                &env,
+                &attacker,
+                &contract_id,
+                $fn_name,
+                (&target,).into_val(&env),
+            );
+            client.$setter(&target);
+        }
+
+        #[test]
+        fn $not_initialized() {
+            let (env, contract_id, _owner, _token_address) = setup_test_env();
+            let client = QuidStoreContractClient::new(&env, &contract_id);
+
+            // Even with every signature available, there is no admin to
+            // authorize yet, so the call is refused.
+            let target = Address::generate(&env);
+            assert_eq!(
+                client.$try_setter(&target),
+                Err(Ok(QuidError::NotInitialized))
+            );
+        }
+
+        #[test]
+        fn $admin_alone() {
+            let (env, contract_id, _owner, _token_address) = setup_test_env();
+            let client = QuidStoreContractClient::new(&env, &contract_id);
+            let admin = ensure_admin(&env, &client);
+
+            let target = Address::generate(&env);
+            mock_auth_call(
+                &env,
+                &admin,
+                &contract_id,
+                $fn_name,
+                (&target,).into_val(&env),
+            );
+            client.$setter(&target);
+
+            assert_eq!(client.$getter(), target);
+        }
+    };
+}
+
+admin_gated_setter_tests!(
+    set_treasury,
+    try_set_treasury,
+    get_treasury,
+    "set_treasury",
+    test_set_treasury_rejects_a_non_admin,
+    test_set_treasury_before_initialize_is_not_initialized,
+    test_set_treasury_succeeds_on_the_admin_signature_alone
+);
+admin_gated_setter_tests!(
+    set_staking_pool,
+    try_set_staking_pool,
+    get_staking_pool,
+    "set_staking_pool",
+    test_set_staking_pool_rejects_a_non_admin,
+    test_set_staking_pool_before_initialize_is_not_initialized,
+    test_set_staking_pool_succeeds_on_the_admin_signature_alone
+);
+admin_gated_setter_tests!(
+    set_fee_collector,
+    try_set_fee_collector,
+    get_fee_collector,
+    "set_fee_collector",
+    test_set_fee_collector_rejects_a_non_admin,
+    test_set_fee_collector_before_initialize_is_not_initialized,
+    test_set_fee_collector_succeeds_on_the_admin_signature_alone
+);
+admin_gated_setter_tests!(
+    set_moderation_registry,
+    try_set_moderation_registry,
+    get_moderation_registry,
+    "set_moderation_registry",
+    test_set_moderation_registry_rejects_a_non_admin,
+    test_set_moderation_registry_before_initialize_is_not_initialized,
+    test_set_moderation_registry_succeeds_on_the_admin_signature_alone
+);
+admin_gated_setter_tests!(
+    set_reputation_contract,
+    try_set_reputation_contract,
+    get_reputation_contract,
+    "set_reputation_contract",
+    test_set_reputation_contract_rejects_a_non_admin,
+    test_set_reputation_contract_before_initialize_is_not_initialized,
+    test_set_reputation_contract_succeeds_on_the_admin_signature_alone
+);
+
+// ---------------------------------------------------------------------------
+// Per-record TTL on every rewrite (SC-001, #393)
+// ---------------------------------------------------------------------------
+//
+// A `set` on an existing entry does not touch its TTL, so a mission that is only
+// ever paused, cancelled or paid out would count down to archival after create.
+// These tests start every entry with a long TTL so a large ledger jump keeps the
+// contract and the token alive, then check that the write tops the record back up
+// to RECORD_TTL_LEDGERS. Without the extension the TTL would just keep falling.
+
+fn setup_long_lived_env() -> (Env, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.min_persistent_entry_ttl = 8_000_000;
+        li.max_entry_ttl = 10_000_000;
+    });
+
+    let contract_id = env.register(QuidStoreContract, ());
+    let token_admin = Address::generate(&env);
+    let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_address = token_contract.address();
+    let owner = Address::generate(&env);
+    StellarAssetClient::new(&env, &token_address).mint(&owner, &1_000_000_000_000);
+
+    (env, contract_id, owner, token_address)
+}
+
+/// Let ~3M ledgers pass: an 8M-ledger TTL falls to ~5M, below the 5.184M the
+/// contract tops records up to.
+fn jump_ledgers(env: &Env) {
+    env.ledger().with_mut(|li| li.sequence_number += 3_000_000);
+}
+
+fn record_ttl(env: &Env, contract_id: &Address, key: &DataKey) -> u32 {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    env.as_contract(contract_id, || env.storage().persistent().get_ttl(key))
+}
+
+#[test]
+fn test_pause_mission_extends_the_mission_ttl() {
+    let (env, contract_id, owner, token_address) = setup_long_lived_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 2);
+    let key = DataKey::Mission(mission_id);
+
+    jump_ledgers(&env);
+    assert!(record_ttl(&env, &contract_id, &key) < RECORD_TTL_LEDGERS);
+
+    client.pause_mission(&mission_id);
+    assert!(record_ttl(&env, &contract_id, &key) >= RECORD_TTL_LEDGERS);
+}
+
+#[test]
+fn test_update_mission_status_extends_the_mission_ttl() {
+    let (env, contract_id, owner, token_address) = setup_long_lived_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 2);
+    let key = DataKey::Mission(mission_id);
+
+    jump_ledgers(&env);
+    assert!(record_ttl(&env, &contract_id, &key) < RECORD_TTL_LEDGERS);
+
+    client.update_mission_status(&mission_id, &MissionStatus::Started);
+    assert!(record_ttl(&env, &contract_id, &key) >= RECORD_TTL_LEDGERS);
+}
+
+#[test]
+fn test_cancel_mission_extends_the_mission_ttl() {
+    let (env, contract_id, owner, token_address) = setup_long_lived_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 2);
+    let key = DataKey::Mission(mission_id);
+
+    jump_ledgers(&env);
+    assert!(record_ttl(&env, &contract_id, &key) < RECORD_TTL_LEDGERS);
+
+    client.cancel_mission(&mission_id);
+    assert!(record_ttl(&env, &contract_id, &key) >= RECORD_TTL_LEDGERS);
+}
+
+#[test]
+fn test_expire_mission_extends_the_mission_ttl() {
+    let (env, contract_id, owner, token_address) = setup_long_lived_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let mission_id = open_expiring_mission(&env, &client, &owner, &token_address, 100);
+    let key = DataKey::Mission(mission_id);
+
+    jump_ledgers(&env);
+    env.ledger().with_mut(|li| li.timestamp += 101);
+    assert!(record_ttl(&env, &contract_id, &key) < RECORD_TTL_LEDGERS);
+
+    client.expire_mission(&mission_id);
+    assert!(record_ttl(&env, &contract_id, &key) >= RECORD_TTL_LEDGERS);
+}
+
+#[test]
+fn test_payout_extends_both_the_submission_and_the_mission_ttl() {
+    let (env, contract_id, owner, token_address) = setup_long_lived_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let mission_id = open_mission(&env, &client, &owner, &token_address, 100, 2);
+
+    let hunter = Address::generate(&env);
+    mint_tokens_for_hunter(&env, &token_address, &hunter, 1_000);
+    client.submit_feedback(
+        &mission_id,
+        &hunter,
+        &String::from_str(&env, "QmTtl"),
+        &token_address,
+        &10,
+    );
+    let mission_key = DataKey::Mission(mission_id);
+    let submission_key = DataKey::Submission(mission_id, hunter.clone());
+
+    jump_ledgers(&env);
+    assert!(record_ttl(&env, &contract_id, &mission_key) < RECORD_TTL_LEDGERS);
+    assert!(record_ttl(&env, &contract_id, &submission_key) < RECORD_TTL_LEDGERS);
+
+    client.payout_participant(&mission_id, &hunter);
+
+    assert!(record_ttl(&env, &contract_id, &mission_key) >= RECORD_TTL_LEDGERS);
+    assert!(record_ttl(&env, &contract_id, &submission_key) >= RECORD_TTL_LEDGERS);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #8)")]
 fn test_update_mission_metadata_fails_after_first_submission() {
@@ -2983,7 +3383,7 @@ fn test_rate_limit_unset_preserves_default_behavior() {
 fn test_rate_limit_exceeded_and_reset_after_window() {
     let (env, contract_id, owner, token_address) = setup_test_env();
     let client = QuidStoreContractClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
+    let admin = ensure_admin(&env, &client);
     let hunter = Address::generate(&env);
     mint_tokens_for_hunter(&env, &token_address, &hunter, 10_000);
 
@@ -3048,4 +3448,76 @@ fn test_rate_limit_exceeded_and_reset_after_window() {
         &token_address,
         &10,
     );
+}
+
+// --- set_rate_limit is admin-gated (SC-001, #393) ---
+
+const TEST_RATE_LIMIT: RateLimit = RateLimit {
+    max: 1,
+    window_secs: 300,
+};
+
+#[test]
+fn test_set_rate_limit_before_initialize_is_not_initialized() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+
+    let caller = Address::generate(&env);
+    assert_eq!(
+        client.try_set_rate_limit(&caller, &Some(TEST_RATE_LIMIT)),
+        Err(Ok(QuidError::NotInitialized))
+    );
+    assert_eq!(client.get_rate_limit(), None);
+}
+
+#[test]
+fn test_set_rate_limit_rejects_a_caller_naming_itself_admin() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    ensure_admin(&env, &client);
+
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_set_rate_limit(&attacker, &Some(TEST_RATE_LIMIT)),
+        Err(Ok(QuidError::Unauthorized))
+    );
+    assert_eq!(client.get_rate_limit(), None);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_set_rate_limit_naming_the_admin_still_needs_its_signature() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let admin = ensure_admin(&env, &client);
+
+    let attacker = Address::generate(&env);
+    let config = Some(TEST_RATE_LIMIT);
+    mock_auth_call(
+        &env,
+        &attacker,
+        &contract_id,
+        "set_rate_limit",
+        (&admin, config.clone()).into_val(&env),
+    );
+    client.set_rate_limit(&admin, &config);
+}
+
+#[test]
+fn test_set_rate_limit_succeeds_on_the_admins_signature_alone() {
+    let (env, contract_id, _owner, _token_address) = setup_test_env();
+    let client = QuidStoreContractClient::new(&env, &contract_id);
+    let admin = ensure_admin(&env, &client);
+
+    let config = Some(TEST_RATE_LIMIT);
+    mock_auth_call(
+        &env,
+        &admin,
+        &contract_id,
+        "set_rate_limit",
+        (&admin, config.clone()).into_val(&env),
+    );
+    client.set_rate_limit(&admin, &config);
+
+    assert_eq!(client.get_rate_limit(), config);
 }

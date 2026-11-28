@@ -31,7 +31,7 @@ Storage tiers: **I** = instance, **P** = persistent.
 
 ### Contract gaps
 
-- **First-caller-wins config in `quid-store`.** `set_treasury`, `set_staking_pool`, `set_fee_collector`, `set_moderation_registry` and `set_reputation_contract` accept whoever calls first, and there's no `initialize` or admin. Anyone can front-run a fresh deployment. This is the highest-priority contract issue.
+- **First-caller-wins config in `quid-store`** (fixed in #393). `set_treasury`, `set_staking_pool`, `set_fee_collector`, `set_moderation_registry` and `set_reputation_contract` used to accept whoever called first, with no `initialize` or admin, so anyone could front-run a fresh deployment. They are now gated behind an admin set once by `initialize`, as is `set_rate_limit`, which accepted any address as `admin`. The testnet deployment listed in `quid-contract/README.md` predates the fix.
 - **No upgrade path.** No contract calls `update_current_contract_wasm`.
 - **No `extend_ttl`** in `quid-milestone-escrow`, `quid-oracle-bridge` or `quid-tip-jar`. Their persistent entries will be archived.
 - **Admin stored in persistent, not instance:** `quid-oracle-bridge` keeps `Oracle` in persistent storage with no TTL bump.

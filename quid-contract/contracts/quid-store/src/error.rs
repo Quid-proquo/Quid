@@ -39,4 +39,12 @@ pub enum QuidError {
     InvalidStakeTiers = 27,
     /// Rate limit reached for hunter within rolling window (SC-021).
     RateLimited = 28,
+    /// A config entrypoint was called before `initialize` set the admin.
+    NotInitialized = 29,
+    /// `initialize` was called again after the admin was already set.
+    AlreadyInitialized = 30,
+    /// `set_rate_limit` was given an `admin` that is not the stored admin. The
+    /// other config setters take no admin argument, so a non-admin caller fails
+    /// them in the host's auth check (`Error(Auth, InvalidAction)`).
+    Unauthorized = 31,
 }
