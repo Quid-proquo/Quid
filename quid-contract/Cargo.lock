@@ -1040,6 +1040,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "quid-probe"
+version = "0.0.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "quid-proof-registry"
 version = "0.0.0"
 dependencies = [
